@@ -27,9 +27,9 @@ import time
 import numpy as np
 import tensorflow as tf
 
-from enas_lm.src import child
-from enas_lm.src import controller
-from enas_lm.src import utils
+from src import child
+from src import controller
+from src import utils
 
 flags = tf.app.flags
 gfile = tf.gfile
@@ -97,7 +97,7 @@ def train(params):
         ops['train_op'],
     ]
 
-    saver = tf.train.Saver(max_to_keep=5)
+    saver = tf.train.Saver(max_to_keep=1)
     checkpoint_saver_hook = tf.train.CheckpointSaverHook(
         params.output_dir, save_steps=params.num_train_batches, saver=saver)
     hooks = [checkpoint_saver_hook]

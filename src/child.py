@@ -22,8 +22,8 @@ from __future__ import print_function
 import numpy as np
 import tensorflow as tf
 
-from enas_lm.src import data_utils
-from enas_lm.src import utils
+from src import data_utils
+from src import utils
 
 
 flags = tf.app.flags

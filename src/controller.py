@@ -31,7 +31,7 @@ flags.DEFINE_float('controller_entropy_weight', 1e-5, '')
 flags.DEFINE_float('controller_temperature', 5., '')
 flags.DEFINE_float('controller_tanh_constant', 2.25, '')
 flags.DEFINE_float('controller_learning_rate', 5e-5, '')
-flags.DEFINE_integer('controller_num_layers', 9, '')
+flags.DEFINE_integer('controller_num_layers', 5, '')
 
 
 REWARD_CONSTANT = 80.0
@@ -83,7 +83,7 @@ class Controller(object):
   """ENAS controller. Samples architectures and creates training ops."""
 
   def __init__(self, params, name='controller'):
-    print('-' * 80)
+    pri nt('-' * 80)
     print('Create a controller')
     self.params = _set_default_params(params)
     self.name = name
@@ -113,7 +113,6 @@ class Controller(object):
     print('Controller has {0} params'.format(num_params))
 
   def _build_sampler(self):
-    """Build the sampler ops and the log_prob ops."""
     hidden_size = self.params.controller_hidden_size
     num_layers = self.params.controller_num_layers
 

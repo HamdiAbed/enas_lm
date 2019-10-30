@@ -56,6 +56,8 @@ def main():
   print('valid size: {}'.format(np.size(x_valid)))
   print('test size: {}'.format(np.size(x_test)))
 
+  print(x_train[1:10])
+
   with open('ptb.pkl', 'wb') as fout:
     pickle.dump((x_train, x_valid, x_test, vocab, index), fout, protocol=2)
 

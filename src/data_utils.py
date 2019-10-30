@@ -56,6 +56,7 @@ def input_producer(raw_data, batch_size, num_steps, shuffle=False,
     if random_len:
       start_idx = tf.Variable(0, name='start_idx', dtype=tf.int32,
                               trainable=False)
+      #truncated backpropagation
       base_bptt = tf.cond(
           tf.random_uniform(shape=(), minval=0., maxval=1.) < 0.95,
           lambda: tf.cast(num_steps, dtype=tf.float32),
@@ -66,7 +67,7 @@ def input_producer(raw_data, batch_size, num_steps, shuffle=False,
       seq_len = tf.minimum(seq_len, num_steps + 20)  # seq_len <= bptt + 40
       seq_len = tf.minimum(seq_len, batch_len - start_idx - 1)
       end_idx = start_idx + seq_len
-
+    #sampling a sequence of connections (x) and operations (y)
       x = data[:, start_idx : end_idx]
       y = data[:, start_idx+1 : end_idx+1]
 
