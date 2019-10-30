@@ -1,6 +1,0 @@
-model_checkpoint_path: "/content/output/model.ckpt-32913"
-all_model_checkpoint_paths: "/content/output/model.ckpt-32085"
-all_model_checkpoint_paths: "/content/output/model.ckpt-32292"
-all_model_checkpoint_paths: "/content/output/model.ckpt-32499"
-all_model_checkpoint_paths: "/content/output/model.ckpt-32706"
-all_model_checkpoint_paths: "/content/output/model.ckpt-32913"
