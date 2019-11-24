@@ -27,6 +27,9 @@ def main():
   with open('train.txt') as finp:
     lines = finp.read().strip().replace('\n', '<eos>')
     words = lines.split(' ')
+    print(np.shape(words))
+    print(words[1:10])
+
 
   vocab, index = {}, {}
   for word in sorted(words):

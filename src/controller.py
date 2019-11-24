@@ -192,6 +192,8 @@ class Controller(object):
 
     self.all_h = all_h
 
+
+
   def build_trainer(self, child_model):
     """Build the train ops by connecting Controller with a Child."""
     # actor
