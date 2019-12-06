@@ -34,15 +34,7 @@ flags.DEFINE_integer('child_batch_size', 128, '')
 flags.DEFINE_integer('child_bptt_steps', 35, '')
 
 
-def _gen_mask(shape, drop_prob):
-  """Generate a droppout mask."""
-  keep_prob = 1. - drop_prob
-  mask = tf.random_uniform(shape, dtype=tf.float32)
-  mask = tf.floor(mask + keep_prob) / keep_prob
-  return mask
-
-
-def _rnn_fn(sample_arc, x, prev_s, w_prev, w_skip, input_mask, layer_mask,
+def _rnn_fn(sample_arc, x, prev_s, w_prev, w_skip,
             params):
   """Multi-layer LSTM.
 
@@ -52,8 +44,6 @@ def _rnn_fn(sample_arc, x, prev_s, w_prev, w_skip, input_mask, layer_mask,
     prev_s: [batch_size, hidden_size].
     w_prev: [2 * hidden_size, 2 * hidden_size].
     w_skip: [None, [hidden_size, 2 * hidden_size] * (num_layers-1)].
-    input_mask: `[batch_size, hidden_size]`.
-    layer_mask: `[batch_size, hidden_size]`.
     params: hyper-params object.
 
   Returns:
@@ -77,8 +67,10 @@ def _rnn_fn(sample_arc, x, prev_s, w_prev, w_skip, input_mask, layer_mask,
   w_skip = u_skip
   var_s = [w_prev] + w_skip[1:]
 
-  def _select_function(h, function_id):
-    h = tf.stack([tf.tanh(h), tf.nn.relu(h), tf.sigmoid(h), h], axis=0)
+  def _select_function(h, prev_layer, function_id):
+    #TODO: add the concat, addition and multiplication to the operations
+    print("shape of prev_layer : {}".format(prev_layer.get_shape()))
+    h = tf.stack([tf.tanh(h),tf.sigmoid(h), tf.nn.relu(h), h], axis=0)
     h = h[function_id]
     return h
 
@@ -87,21 +79,22 @@ def _rnn_fn(sample_arc, x, prev_s, w_prev, w_skip, input_mask, layer_mask,
 
   def _body(step, prev_s, all_s):
     """Body function."""
+    print("step, batch_size= {},{}".format(step,batch_size,))
     inp = x[:, step, :]
+    print("shape of inp is: {}".format(inp.get_shape()))
 
     # important change: first input uses a tanh()
-    if layer_mask is not None:
-      assert input_mask is not None
-      ht = tf.matmul(tf.concat([inp * input_mask, prev_s * layer_mask],
-                               axis=1), w_prev)
-    else:
-      ht = tf.matmul(tf.concat([inp, prev_s], axis=1), w_prev)
+    ht = tf.matmul(tf.concat([inp, prev_s], axis=1), w_prev)
+    print("shape of  ht before sampling  is: {}".format(ht.get_shape()))
+
     h, t = tf.split(ht, 2, axis=1)
+    print("shape of  h, t before sampling  is: {},{}".format(h.get_shape(),t.get_shape()))
     h = tf.tanh(h)
     t = tf.sigmoid(t)
     s = prev_s + t * (h - prev_s)
     layers = [s]
 
+    #TODO: add the c_prev and produce Ct
     start_idx = 0
     used = []
     for layer_id in range(num_layers):
@@ -109,13 +102,14 @@ def _rnn_fn(sample_arc, x, prev_s, w_prev, w_skip, input_mask, layer_mask,
       func_idx = sample_arc[start_idx + 1]
       used.append(tf.one_hot(prev_idx, depth=num_layers, dtype=tf.int32))
       prev_s = tf.stack(layers, axis=0)[prev_idx]
-      if layer_mask is not None:
-        ht = tf.matmul(prev_s * layer_mask, w_skip[layer_id])
-      else:
-        ht = tf.matmul(prev_s, w_skip[layer_id])
-      h, t = tf.split(ht, 2, axis=1)
 
-      h = _select_function(h, func_idx)
+      ht = tf.matmul(prev_s, w_skip[layer_id])
+      print("shape of  ht after sampling  is: {}".format(ht.get_shape()))
+
+      h, t = tf.split(ht, 2, axis=1)
+      print("shape of  h, t after sampling  is: {},{}".format(h.get_shape(), t.get_shape()))
+      h = _select_function(h,prev_s, func_idx)
+
       t = tf.sigmoid(t)
       s = prev_s + t * (h - prev_s)
       s.set_shape([batch_size, params.hidden_size])
@@ -144,11 +138,11 @@ def _set_default_params(params):
   params.add_hparam('bptt_steps', FLAGS.child_bptt_steps)
 
   # for dropouts: dropping rate, NOT keeping rate
-  params.add_hparam('drop_e', 0.10)  # word
-  params.add_hparam('drop_i', 0.20)  # embeddings
-  params.add_hparam('drop_x', 0.75)  # input to RNN cells
-  params.add_hparam('drop_l', 0.25)  # between layers
-  params.add_hparam('drop_o', 0.75)  # output
+  params.add_hparam('drop_e', 0.0)  # word
+  params.add_hparam('drop_i', 0.0)  # embeddings
+  params.add_hparam('drop_x', 0.0)  # input to RNN cells
+  params.add_hparam('drop_l', 0.0)  # between layers
+  params.add_hparam('drop_o', 0.0)  # output
   params.add_hparam('drop_w', 0.00)  # weight
 
   params.add_hparam('grad_bound', 0.1)
@@ -205,27 +199,16 @@ class LM(object):
     with tf.variable_scope(self.name, initializer=initializer):
       with tf.variable_scope('embedding'):
         w_emb = tf.get_variable('w', [self.params.vocab_size, hidden_size])
-        dropped_w_emb = tf.layers.dropout(
-            w_emb, self.params.drop_e, [self.params.vocab_size, 1],
-            training=True)
 
       with tf.variable_scope('rnn_cell'):
         w_prev = tf.get_variable('w_prev', [2 * hidden_size, 2 * hidden_size])
-        i_mask = tf.ones([hidden_size, 2 * hidden_size], dtype=tf.float32)
-        h_mask = _gen_mask([hidden_size, 2 * hidden_size], self.params.drop_w)
-        mask = tf.concat([i_mask, h_mask], axis=0)
-        dropped_w_prev = w_prev * mask
 
-        w_skip, dropped_w_skip = [], []
+        w_skip = []
         for layer_id in range(1, num_layers+1):
           with tf.variable_scope('layer_{}'.format(layer_id)):
             w = tf.get_variable(
                 'w', [num_functions, layer_id, hidden_size, 2 * hidden_size])
-            mask = _gen_mask([1, 1, hidden_size, 2 * hidden_size],
-                             self.params.drop_w)
-            dropped_w = w * mask
             w_skip.append(w)
-            dropped_w_skip.append(dropped_w)
 
       with tf.variable_scope('init_states'):
         with tf.variable_scope('batch'):
@@ -253,11 +236,11 @@ class LM(object):
         'reset': batch_reset,
     }
     self.train_params = {
-        'w_emb': dropped_w_emb,
-        'w_prev': dropped_w_prev,
-        'w_skip': dropped_w_skip,
-        'w_soft': w_emb,
-    }
+        'w_emb': w_emb,
+        'w_prev': w_prev,
+        'w_skip':  w_skip,
+        'w_soft': w_emb}
+
     self.eval_params = {
         'w_emb': w_emb,
         'w_prev': w_prev,
@@ -284,29 +267,17 @@ class LM(object):
     w_soft = model_params['w_soft']
     prev_s = init_states['s']
 
+    print('w_prev size is : {}'.format(w_prev.get_shape()))
+
     emb = tf.nn.embedding_lookup(w_emb, x)
     batch_size = self.params.batch_size
     hidden_size = self.params.hidden_size
     sample_arc = self.sample_arc
-    if is_training:
-      emb = tf.layers.dropout(
-          emb, self.params.drop_i, [batch_size, 1, hidden_size], training=True)
-
-      input_mask = _gen_mask([batch_size, hidden_size], self.params.drop_x)
-      layer_mask = _gen_mask([batch_size, hidden_size], self.params.drop_l)
-    else:
-      input_mask = None
-      layer_mask = None
 
     out_s, all_s, var_s = _rnn_fn(sample_arc, emb, prev_s, w_prev, w_skip,
-                                  input_mask, layer_mask, params=self.params)
+                                  params=self.params)
 
     top_s = all_s
-    if is_training:
-      top_s = tf.layers.dropout(
-          top_s, self.params.drop_o,
-          [self.params.batch_size, 1, self.params.hidden_size], training=True)
-
     carry_on = [tf.assign(prev_s, out_s)]
     logits = tf.einsum('bnh,vh->bnv', top_s, w_soft)
     loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y,

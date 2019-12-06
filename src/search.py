@@ -27,9 +27,9 @@ import time
 import numpy as np
 import tensorflow as tf
 
-from src import child
-from src import controller
-from src import utils
+from enas_lm.src import child
+from enas_lm.src import controller
+from enas_lm.src import utils
 
 flags = tf.app.flags
 gfile = tf.gfile
@@ -86,8 +86,10 @@ def train(params):
     print('valid_size: {0}'.format(np.size(x_valid)))
 
   g = tf.Graph()
+
   with g.as_default():
     ops = get_ops(params, x_train, x_valid)
+
     run_ops = [
         ops['train_loss'],
         ops['l2_reg_loss'],
@@ -111,10 +113,10 @@ def train(params):
     epoch = 0
     best_valid_ppl = []
     start_time = time.time()
+
     while True:
       try:
         loss, l2_reg, gn, lr, should_reset, _ = sess.run(run_ops)
-
         accum_loss += loss
         accum_step += 1
         step = sess.run(ops['global_step'])
@@ -139,6 +141,7 @@ def train(params):
           sess.run([ops['reset_batch_states'], ops['reset_start_idx']])
           best_valid_ppl.append(valid_ppl)
 
+
         if step >= params.num_train_steps:
           break
       except tf.errors.InvalidArgumentError:
@@ -146,13 +149,14 @@ def train(params):
         print('rolling back to previous checkpoint {0}'.format(last_checkpoint))
         saver.restore(sess, last_checkpoint)
 
-    sess.close()
 
+
+
+    sess.close()
 
 def main(unused_args):
   np.set_printoptions(precision=3, suppress=True, threshold=int(1e9),
                       linewidth=80)
-
   print('-' * 80)
   if not gfile.IsDirectory(FLAGS.output_dir):
     print('Path {} does not exist. Creating'.format(FLAGS.output_dir))

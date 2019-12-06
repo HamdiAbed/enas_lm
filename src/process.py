@@ -24,7 +24,7 @@ import numpy as np
 
 
 def main():
-  with open('train.txt') as finp:
+  with open('/content/enas_lm/src/ptb.train.txt') as finp:
     lines = finp.read().strip().replace('\n', '<eos>')
     words = lines.split(' ')
     print(np.shape(words))
@@ -41,14 +41,14 @@ def main():
   x_train = [vocab[word] for word in words] + [vocab['<eos>']]
   x_train = np.array(x_train, dtype=np.int32)
 
-  with open('valid.txt') as finp:
+  with open('/content/enas_lm/src/ptb.valid.txt') as finp:
     lines = finp.read().strip().replace('\n', '<eos>')
     words = lines.split(' ')
 
   x_valid = [vocab[word] for word in words] + [vocab['<eos>']]
   x_valid = np.array(x_valid, dtype=np.int32)
 
-  with open('test.txt') as finp:
+  with open('/content/enas_lm/src/ptb.test.txt') as finp:
     lines = finp.read().strip().replace('\n', '<eos>')
     words = lines.split(' ')
 
