@@ -27,9 +27,9 @@ import time
 import numpy as np
 import tensorflow as tf
 
-from enas_lm.src import child
-from enas_lm.src import controller
-from enas_lm.src import utils
+import child
+import controller
+import utils
 
 flags = tf.app.flags
 gfile = tf.gfile
@@ -79,6 +79,7 @@ def get_ops(params, x_train, x_valid):
 
 def train(params):
   """Entry train function."""
+  tf.reset_default_graph()
   with gfile.GFile(params.data_path, 'rb') as finp:
     x_train, x_valid, _, _, _ = pickle.load(finp)
     print('-' * 80)
@@ -86,6 +87,8 @@ def train(params):
     print('valid_size: {0}'.format(np.size(x_valid)))
 
   g = tf.Graph()
+
+
 
   with g.as_default():
     ops = get_ops(params, x_train, x_valid)
@@ -108,6 +111,10 @@ def train(params):
     config.gpu_options.allow_growth = True
     sess = tf.train.SingularMonitoredSession(config=config, hooks=hooks,
                                              checkpoint_dir=params.output_dir)
+    #summary_hook = tf.train.SummarySaverHook(save_steps=params.num_train_batches,
+    #                                         save_secs=120,
+     #                                        output_dir=params.output_dir,
+      #                                       scaffold=tf.train.Scaffold(summary_op=tf.summary.merge_all()))
     accum_loss = 0
     accum_step = 0
     epoch = 0
@@ -117,6 +124,8 @@ def train(params):
     while True:
       try:
         loss, l2_reg, gn, lr, should_reset, _ = sess.run(run_ops)
+
+        #print('loss type is {}'.format(type(loss)))
         accum_loss += loss
         accum_step += 1
         step = sess.run(ops['global_step'])
@@ -144,6 +153,7 @@ def train(params):
 
         if step >= params.num_train_steps:
           break
+
       except tf.errors.InvalidArgumentError:
         last_checkpoint = tf.train.latest_checkpoint(params.output_dir)
         print('rolling back to previous checkpoint {0}'.format(last_checkpoint))

@@ -1,0 +1,6 @@
+1) Literature review
+	- About NAS for optimal LSTM.
+	- About other approaches.
+2) RNN --> cell component.
+3) Measurement: Perplexity on PTB dataset.
+4) Compare results of ENAS in LSTM, RNN, and GRU

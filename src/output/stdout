@@ -1,0 +1,184 @@
+--------------------------------------------------------------------------------
+train_size: 929589
+valid_size: 73760
+--------------------------------------------------------------------------------
+Create a controller
+Controller has 41344 params
+--------------------------------------------------------------------------------
+Building LM
+--------------------------------------------------------------------------------
+Building model params
+All children have 16560000 params
+Each child has 2880000 params
+--------------------------------------------------------------------------------
+Building train graph
+w_prev size is : (400, 400)
+step, batch_size= Tensor("while/Identity:0", shape=(), dtype=int32),128
+shape of inp is: (128, 200)
+--------------------------------------------------------------------------------
+train_size: 929589
+valid_size: 73760
+--------------------------------------------------------------------------------
+Create a controller
+Controller has 41344 params
+--------------------------------------------------------------------------------
+Building LM
+--------------------------------------------------------------------------------
+Building model params
+All children have 16560000 params
+Each child has 2880000 params
+--------------------------------------------------------------------------------
+Building train graph
+w_prev size is : (400, 400)
+step, batch_size= Tensor("while/Identity:0", shape=(), dtype=int32),128
+shape of inp is: (128, 200)
+--------------------------------------------------------------------------------
+train_size: 929589
+valid_size: 73760
+--------------------------------------------------------------------------------
+Create a controller
+Controller has 41344 params
+--------------------------------------------------------------------------------
+Building LM
+--------------------------------------------------------------------------------
+Building model params
+All children have 16560000 params
+Each child has 2880000 params
+--------------------------------------------------------------------------------
+Building train graph
+w_prev size is : (400, 400)
+step, batch_size= Tensor("while/Identity:0", shape=(), dtype=int32),128
+shape of inp is: (128, 200)
+shape of  h, t before sampling  is: (128, 400),(128, 400)
+--------------------------------------------------------------------------------
+train_size: 929589
+valid_size: 73760
+--------------------------------------------------------------------------------
+Create a controller
+Controller has 41344 params
+--------------------------------------------------------------------------------
+Building LM
+--------------------------------------------------------------------------------
+Building model params
+All children have 16720000 params
+Each child has 3040000 params
+--------------------------------------------------------------------------------
+Building train graph
+w_prev size is : (400, 800)
+step, batch_size= Tensor("while/Identity:0", shape=(), dtype=int32),128
+shape of inp is: (128, 200)
+shape of  h, t before sampling  is: (128, 800),(128, 800)
+--------------------------------------------------------------------------------
+train_size: 929589
+valid_size: 73760
+--------------------------------------------------------------------------------
+Create a controller
+Controller has 41344 params
+--------------------------------------------------------------------------------
+Building LM
+--------------------------------------------------------------------------------
+Building model params
+All children have 16480000 params
+Each child has 2800000 params
+--------------------------------------------------------------------------------
+Building train graph
+w_prev size is : (400, 200)
+step, batch_size= Tensor("while/Identity:0", shape=(), dtype=int32),128
+shape of inp is: (128, 200)
+shape of  h, t before sampling  is: (128, 200),(128, 200)
+--------------------------------------------------------------------------------
+train_size: 929589
+valid_size: 73760
+--------------------------------------------------------------------------------
+Create a controller
+Controller has 41344 params
+--------------------------------------------------------------------------------
+Building LM
+--------------------------------------------------------------------------------
+Building model params
+All children have 16480000 params
+Each child has 2800000 params
+--------------------------------------------------------------------------------
+Building train graph
+w_prev size is : (400, 200)
+step, batch_size= Tensor("while/Identity:0", shape=(), dtype=int32),128
+shape of inp is: (128, 200)
+shape of  h, t before sampling  is: (128, 200),(128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+Building valid graph
+w_prev size is : (400, 200)
+step, batch_size= Tensor("while_1/Identity:0", shape=(), dtype=int32),128
+shape of inp is: (128, 200)
+shape of  h, t before sampling  is: (128, 200),(128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+shape of  h, t after sampling  is: (128, 200),(128, 200)
+shape of prev_layer : (128, 200)
+--------------------------------------------------------------------------------
+HParams:
+{
+  "alpha": 0.0,
+  "batch_size": 128,
+  "best_valid_ppl_threshold": 5,
+  "beta": 1.0,
+  "bptt_steps": 35,
+  "controller_baseline_dec": 0.999,
+  "controller_entropy_weight": 1e-05,
+  "controller_hidden_size": 64,
+  "controller_learning_rate": 5e-05,
+  "controller_num_aggregate": 10,
+  "controller_num_functions": 4,
+  "controller_num_layers": 9,
+  "controller_num_train_steps": 25,
+  "controller_tanh_constant": 2.25,
+  "controller_temperature": 5.0,
+  "data_path": "/home/hamdiabed/enas-rnn-search/src/ptb.pkl",
+  "drop_e": 0.0,
+  "drop_i": 0.0,
+  "drop_l": 0.0,
+  "drop_o": 0.0,
+  "drop_w": 0.0,
+  "drop_x": 0.0,
+  "grad_bound": 0.1,
+  "hidden_size": 200,
+  "init_range": 0.04,
+  "learning_rate": 20.0,
+  "log_every": 200,
+  "num_train_batches": 207,
+  "num_train_epochs": 600,
+  "num_train_steps": 124200,
+  "output_dir": "/home/hamdiabed/enas-rnn-search/src/output",
+  "vocab_size": 10000,
+  "weight_decay": 8e-07
+}
