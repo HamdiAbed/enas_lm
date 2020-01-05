@@ -69,8 +69,8 @@ def _rnn_fn(sample_arc, x, prev_s, w_prev, w_skip,
   w_skip = u_skip
   var_s = [w_prev] + w_skip[1:]
 
-  def _select_function(h, prev_layer, function_id):
-    h = tf.stack([tf.tanh(h),tf.sigmoid(h), tf.nn.relu(h), h], axis=0)
+  def _select_function(ht_prev, function_id):
+    h = tf.stack([tf.tanh(ht_prev), tf.sigmoid(ht_prev),tf.nn.relu(ht_prev), ht_prev], axis=0)
     h = h[function_id]
     return h
 
@@ -81,16 +81,13 @@ def _rnn_fn(sample_arc, x, prev_s, w_prev, w_skip,
     """Body function."""
 
     inp = x[:, step, :]
-    print("shape of inp is: {}".format(inp.get_shape()))
 
-    h = tf.matmul(prev_s, (tf.split(w_prev, 2, axis=1)[0]))
+    ht_prev = tf.matmul(prev_s, (tf.split(w_prev, 2, axis=1)[0]))
     t= tf.matmul(inp, (tf.split(w_prev, 2, axis=1)[1]))
 
     #First input has to go through tanh operation
-    h = tf.tanh(h)
-    t = tf.sigmoid(t)
-    b= tf.add(h, t)
-    layers = [b]
+    h = tf.tanh(tf.add(ht_prev,t))
+    layers = [h]
 
     #TODO: add the c_prev and produce Ct
     start_idx = 0
@@ -103,12 +100,11 @@ def _rnn_fn(sample_arc, x, prev_s, w_prev, w_skip,
       used.append(tf.one_hot(prev_idx, depth=num_layers, dtype=tf.int32))
       prev_s = tf.stack(layers, axis=0)[prev_idx]
 
-      h = tf.matmul(prev_s, (tf.split(w_skip[layer_id], 2, axis=1)[0]))
+      ht_prev= tf.matmul(prev_s, (tf.split(w_skip[layer_id], 2, axis=1)[0]))
       t = tf.matmul(inp, (tf.split(w_skip[layer_id], 2, axis=1)[1]))
 
-      b = tf.add(t , h)
-      print("shape of  h, t after sampling  is: {},{}".format(h.get_shape(), t.get_shape()))
-      h = _select_function(b, prev_s, func_idx)
+      ht = tf.add(ht_prev, t)
+      h = _select_function(ht, func_idx)
 
       layers.append(h)
       start_idx += 2

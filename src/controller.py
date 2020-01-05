@@ -50,7 +50,10 @@ def _build_train_op(loss, tf_vars, learning_rate, train_step, num_aggregate):
 
 def _lstm(x, prev_c, prev_h, w_lstm):
   """LSTM subgraph."""
-  ifog = tf.matmul(tf.concat([x, prev_h], axis=1), w_lstm)
+  #ifog = tf.matmul(tf.concat([x, prev_h], axis=1), w_lstm)
+  x = tf.matmul(x, (tf.split(w_lstm,2,axis =0)[0]))
+  prev_h = tf.matmul(prev_h, (tf.split(w_lstm,2,axis =0)[0]))
+  ifog = x + prev_h
   i, f, o, g = tf.split(ifog, 4, axis=1)
   i = tf.sigmoid(i)
   f = tf.sigmoid(f)
