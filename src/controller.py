@@ -68,8 +68,8 @@ def _set_default_params(params):
   """Add controller's default params."""
   params.add_hparam('controller_hidden_size', 64)
   params.add_hparam('controller_num_layers', FLAGS.controller_num_layers)
-  params.add_hparam('controller_num_functions', 4)  # tanh, relu, sigmoid, iden
-
+  params.add_hparam('controller_num_functions', 3)  # tanh, sigmoid, iden
+  params.add_hparam('controller_num_operations', 2) #addition, multiplication
   params.add_hparam('controller_baseline_dec', FLAGS.controller_baseline_dec)
   params.add_hparam('controller_entropy_weight',
                     FLAGS.controller_entropy_weight)
@@ -97,6 +97,7 @@ class Controller(object):
     """Create TF parameters."""
     initializer = tf.random_uniform_initializer(minval=-0.01, maxval=0.01)
     num_funcs = self.params.controller_num_functions
+    num_ops = self.params.controller_num_operations
     hidden_size = self.params.controller_hidden_size
     with tf.variable_scope(self.name, initializer=initializer):
       with tf.variable_scope('lstm'):
@@ -105,6 +106,7 @@ class Controller(object):
       with tf.variable_scope('embedding'):
         self.g_emb = tf.get_variable('g', [1, hidden_size])
         self.w_emb = tf.get_variable('w', [num_funcs, hidden_size])
+        self.w_ops = tf.get_variable('w_ops', [num_ops, hidden_size])
 
       with tf.variable_scope('attention'):
         self.attn_w_1 = tf.get_variable('w_1', [hidden_size, hidden_size])
@@ -132,57 +134,79 @@ class Controller(object):
 
     inputs = self.g_emb
     for layer_id in range(1, num_layers+1):
-      next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_lstm)
-      prev_c, prev_h = next_c, next_h
-      all_h.append(next_h)
-      all_h_w.append(tf.matmul(next_h, self.attn_w_1))
+      for i in range(2):
+        #Sampling the index first
+        next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_lstm)
+        prev_c, prev_h = next_c, next_h
+        all_h.append(next_h)
+        all_h_w.append(tf.matmul(next_h, self.attn_w_1))
 
-      query = tf.matmul(next_h, self.attn_w_2)
-      query = query + tf.concat(all_h_w[:-1], axis=0)
-      query = tf.tanh(query)
-      logits = tf.matmul(query, self.attn_v)
-      logits = tf.reshape(logits, [1, layer_id])
+        query = tf.matmul(next_h, self.attn_w_2)
+        query = query + tf.concat(all_h_w[:-1], axis=0)
+        query = tf.tanh(query)
+        logits = tf.matmul(query, self.attn_v)
+        logits = tf.reshape(logits, [1, layer_id])
 
-      if self.params.controller_temperature:
-        logits /= self.params.controller_temperature
-      if self.params.controller_tanh_constant:
-        logits = self.params.controller_tanh_constant * tf.tanh(logits)
-      diff = tf.to_float(layer_id - tf.range(0, layer_id)) ** 2
-      logits -= tf.reshape(diff, [1, layer_id]) / 6.0
+        if self.params.controller_temperature:
+          logits /= self.params.controller_temperature
+        if self.params.controller_tanh_constant:
+          logits = self.params.controller_tanh_constant * tf.tanh(logits)
+        diff = tf.to_float(layer_id - tf.range(0, layer_id)) ** 2
+        logits -= tf.reshape(diff, [1, layer_id]) / 6.0
 
-      skip_index = tf.multinomial(logits, 1)
-      skip_index = tf.to_int32(skip_index)
-      skip_index = tf.reshape(skip_index, [1])
-      arc_seq.append(skip_index)
+        skip_index = tf.multinomial(logits, 1)
+        skip_index = tf.to_int32(skip_index)
+        skip_index = tf.reshape(skip_index, [1])
+        arc_seq.append(skip_index)
 
-      log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(
           logits=logits, labels=skip_index)
-      sample_log_probs.append(log_prob)
+        sample_log_probs.append(log_prob)
 
-      entropy = log_prob * tf.exp(-log_prob)
-      sample_entropy.append(tf.stop_gradient(entropy))
-
-      inputs = tf.nn.embedding_lookup(
+        entropy = log_prob * tf.exp(-log_prob)
+        sample_entropy.append(tf.stop_gradient(entropy))
+        inputs = tf.nn.embedding_lookup(
           tf.concat(all_h[:-1], axis=0), skip_index)
-      inputs /= (0.1 + tf.to_float(layer_id - skip_index))
+        inputs /= (0.1 + tf.to_float(layer_id - skip_index))
 
-      next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_lstm)
+        #Sampling an activation function
+        next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_lstm)
+        prev_c, prev_h = next_c, next_h
+        logits = tf.matmul(next_h, self.w_emb, transpose_b=True)
+        if self.params.controller_temperature:
+          logits /= self.params.controller_temperature
+        if self.params.controller_tanh_constant:
+          logits = self.params.controller_tanh_constant * tf.tanh(logits)
+        func = tf.multinomial(logits, 1)
+        func = tf.to_int32(func)
+        func = tf.reshape(func, [1])
+        arc_seq.append(func)
+        log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(
+          logits=logits, labels=func)
+        sample_log_probs.append(log_prob)
+        entropy = log_prob * tf.exp(-log_prob)
+        sample_entropy.append(tf.stop_gradient(entropy))
+        inputs = tf.nn.embedding_lookup(self.w_emb, func)
+        i += 1
+
+      # sampling an operation for the selected connections and functions
+      next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_ops)
       prev_c, prev_h = next_c, next_h
       logits = tf.matmul(next_h, self.w_emb, transpose_b=True)
       if self.params.controller_temperature:
         logits /= self.params.controller_temperature
       if self.params.controller_tanh_constant:
         logits = self.params.controller_tanh_constant * tf.tanh(logits)
-      func = tf.multinomial(logits, 1)
-      func = tf.to_int32(func)
-      func = tf.reshape(func, [1])
-      arc_seq.append(func)
+      op = tf.multinomial(logits, 1)
+      op = tf.to_int32(op)
+      op = tf.reshape(op, [1])
+      arc_seq.append(op)
       log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(
-          logits=logits, labels=func)
+        logits=logits, labels=op)
       sample_log_probs.append(log_prob)
       entropy = log_prob * tf.exp(-log_prob)
       sample_entropy.append(tf.stop_gradient(entropy))
-      inputs = tf.nn.embedding_lookup(self.w_emb, func)
+      inputs = tf.nn.embedding_lookup(self.w_ops, op)
 
     arc_seq = tf.concat(arc_seq, axis=0)
     self.sample_arc = arc_seq
