@@ -47,13 +47,12 @@ def _build_train_op(loss, tf_vars, learning_rate, train_step, num_aggregate):
   grad_norm = tf.global_norm(grads)
   return train_op, optim, grad_norm
 
-
 def _lstm(x, prev_c, prev_h, w_lstm):
   """LSTM subgraph."""
   #ifog = tf.matmul(tf.concat([x, prev_h], axis=1), w_lstm)
-  x = tf.matmul(x, (tf.split(w_lstm,2,axis =0)[0]))
-  prev_h = tf.matmul(prev_h, (tf.split(w_lstm,2,axis =0)[0]))
-  ifog = x + prev_h
+  x = tf.matmul(x, (tf.split(w_lstm,2,axis = 0)[0]))
+  prev_h = tf.matmul(prev_h, (tf.split(w_lstm,2,axis = 0)[1]))
+  ifog = tf.add(x, prev_h)
   i, f, o, g = tf.split(ifog, 4, axis=1)
   i = tf.sigmoid(i)
   f = tf.sigmoid(f)
@@ -68,7 +67,7 @@ def _set_default_params(params):
   """Add controller's default params."""
   params.add_hparam('controller_hidden_size', 64)
   params.add_hparam('controller_num_layers', FLAGS.controller_num_layers)
-  params.add_hparam('controller_num_functions', 3)  # tanh, sigmoid, iden
+  params.add_hparam('controller_num_functions', 4)  # tanh, sigmoid, identity, zero
   params.add_hparam('controller_num_operations', 2) #addition, multiplication
   params.add_hparam('controller_baseline_dec', FLAGS.controller_baseline_dec)
   params.add_hparam('controller_entropy_weight',
@@ -132,9 +131,10 @@ class Controller(object):
     prev_c = tf.zeros([1, hidden_size], dtype=tf.float32)
     prev_h = tf.zeros([1, hidden_size], dtype=tf.float32)
 
-    inputs = self.g_emb
-    for layer_id in range(1, num_layers+1):
-      for i in range(2):
+    inputs = self.g_emb #[1 , hidden_size]
+    for layer_id in range(1, num_layers + 1):
+      for i in [0, 1]:
+        print("layer_id , i are: {}, {}".format(layer_id, i))
         #Sampling the index first
         next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_lstm)
         prev_c, prev_h = next_c, next_h
@@ -143,9 +143,19 @@ class Controller(object):
 
         query = tf.matmul(next_h, self.attn_w_2)
         query = query + tf.concat(all_h_w[:-1], axis=0)
+        print("all_h_w shape is: {}".format(np.shape(all_h_w)))
+        print("Query shape : {}".format(query.get_shape()))
+        if i == 0:
+          query = query[::2]
+        else:
+          query = query[1::2]
         query = tf.tanh(query)
+        print("Query_1 shape : {}".format(query.get_shape()))
         logits = tf.matmul(query, self.attn_v)
+        print("logits shape : {}".format(logits.get_shape()))
+        print("[1,layer_id] = [1,{}]".format(layer_id))
         logits = tf.reshape(logits, [1, layer_id])
+        print("logits shape : {}".format(logits.get_shape()))
 
         if self.params.controller_temperature:
           logits /= self.params.controller_temperature
@@ -169,30 +179,36 @@ class Controller(object):
           tf.concat(all_h[:-1], axis=0), skip_index)
         inputs /= (0.1 + tf.to_float(layer_id - skip_index))
 
+        if layer_id % 2 ==0 :
+          arc_seq.append([0])
+        else:
+          arc_seq.append([1])
+
         #Sampling an activation function
-        next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_lstm)
-        prev_c, prev_h = next_c, next_h
-        logits = tf.matmul(next_h, self.w_emb, transpose_b=True)
-        if self.params.controller_temperature:
-          logits /= self.params.controller_temperature
-        if self.params.controller_tanh_constant:
-          logits = self.params.controller_tanh_constant * tf.tanh(logits)
-        func = tf.multinomial(logits, 1)
-        func = tf.to_int32(func)
-        func = tf.reshape(func, [1])
-        arc_seq.append(func)
-        log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(
-          logits=logits, labels=func)
-        sample_log_probs.append(log_prob)
-        entropy = log_prob * tf.exp(-log_prob)
-        sample_entropy.append(tf.stop_gradient(entropy))
-        inputs = tf.nn.embedding_lookup(self.w_emb, func)
+        #next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_lstm)
+        #prev_c, prev_h = next_c, next_h
+        #logits = tf.matmul(next_h, self.w_emb, transpose_b=True)
+        #if self.params.controller_temperature:
+        #  logits /= self.params.controller_temperature
+        #if self.params.controller_tanh_constant:
+        #  logits = self.params.controller_tanh_constant * tf.tanh(logits)
+        #func = tf.multinomial(logits, 1)
+        #func = tf.to_int32(func)
+        #func = tf.reshape(func, [1])
+        #arc_seq.append(func)
+        #log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        #  logits=logits, labels=func)
+        #sample_log_probs.append(log_prob)
+        #entropy = log_prob * tf.exp(-log_prob)
+        #sample_entropy.append(tf.stop_gradient(entropy))
+
+
         i += 1
 
       # sampling an operation for the selected connections and functions
-      next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_ops)
+      next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_lstm)
       prev_c, prev_h = next_c, next_h
-      logits = tf.matmul(next_h, self.w_emb, transpose_b=True)
+      logits = tf.matmul(next_h, self.w_ops, transpose_b=True)
       if self.params.controller_temperature:
         logits /= self.params.controller_temperature
       if self.params.controller_tanh_constant:
@@ -206,9 +222,11 @@ class Controller(object):
       sample_log_probs.append(log_prob)
       entropy = log_prob * tf.exp(-log_prob)
       sample_entropy.append(tf.stop_gradient(entropy))
-      inputs = tf.nn.embedding_lookup(self.w_ops, op)
+
+      #TODO : add one last sampler to sample Ct
 
     arc_seq = tf.concat(arc_seq, axis=0)
+    print("arc_seq shape is: {}".format(arc_seq.get_shape()))
     self.sample_arc = arc_seq
 
     self.sample_log_probs = tf.concat(sample_log_probs, axis=0)
@@ -239,8 +257,8 @@ class Controller(object):
                                     ((1 - self.params.controller_baseline_dec) *
                                      (self.baseline - self.reward)))
 
-    with tf.control_dependencies([baseline_update]):
-      self.reward = tf.identity(self.reward)
+    #with tf.control_dependencies([baseline_update]):
+    self.reward = tf.identity(self.reward)
     self.loss = self.sample_log_probs * (self.reward - self.baseline)
 
     self.train_step = tf.Variable(

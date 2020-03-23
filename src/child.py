@@ -33,18 +33,16 @@ FLAGS = flags.FLAGS
 flags.DEFINE_integer('child_batch_size', 128, '')
 flags.DEFINE_integer('child_bptt_steps', 35, '')
 
-
+global emb
 def _rnn_fn(sample_arc, x, prev_h, w_prev, w_skip,
             params):
   """Multi-layer LSTM.
   Args:
-    sample_arc: [num_layers * 2], sequence of tokens representing architecture.
+    sample_arc: [5 * num_layers + 2 ], sequence of tokens representing architecture.
     x: [batch_size, num_steps, hidden_size].
     prev_h: [batch_size, hidden_size].
     w_prev: [ hidden_size, 2 * hidden_size].
-    w_skip: [None, [hidden_size, 2 * hidden_size] * (num_layers-1)].
-    W_i:  [batch_size , 4 * hidden_size]
-    w_h: [hidden_size , 4 * hidden_size]
+    w_skip: [None, [hidden_size,  hidden_size] * (num_layers)].
     params: hyper-params object.
   Returns:
     next_h: [batch_size, hidden_size].
@@ -52,28 +50,35 @@ def _rnn_fn(sample_arc, x, prev_h, w_prev, w_skip,
   """
   batch_size = x.get_shape()[0].value
   num_steps = tf.shape(x)[1]
-  num_layers = len(sample_arc) // 2
+  num_layers = len(sample_arc) // 5
+  emb = x
 
   all_h = tf.TensorArray(dtype=tf.float32, size=num_steps, infer_shape=False)
 
   # extract the relevant variables, so that you only do L2-reg on them.
-  u_skip = []
-  start_idx = 0
-  for layer_id in range(num_layers):
-    prev_idx = sample_arc[start_idx]
-    func_idx = sample_arc[start_idx + 1]
-    u_skip.append(w_skip[layer_id][func_idx, prev_idx])
-    start_idx += 2
-  w_skip = u_skip
-  var_s = [w_prev] + w_skip[1:]
+  u_skip_1 = []
+  u_skip_2 = []
+  start_idx = 20
+  for layer_id in range(num_layers - 5):
+    print("layer_id is : {}".format(layer_id))
+    prev_idx_1 = sample_arc[start_idx]
+    func_idx_1 = sample_arc[start_idx + 1]
+    prev_idx_2 = sample_arc[start_idx + 2]
+    func_idx_2 = sample_arc[start_idx + 3]
+    u_skip_1.append(w_skip[layer_id][func_idx_1, prev_idx_1])
+    u_skip_2.append(w_skip[layer_id][func_idx_2, prev_idx_2])
+    start_idx += 5
+  w_skip_1 = u_skip_1
+  w_skip_2 = u_skip_2
+  var_s = [w_prev] + w_skip_1 + w_skip_2
 
   def _select_function(h, function_id):
-    h = tf.stack([tf.tanh(h), tf.sigmoid(h), h], axis=0)
+    h = tf.stack([tf.tanh(h), tf.sigmoid(h), h, h*[0]], axis=0)
     h = h[function_id]
     return h
 
   def _select_op(h_1, h_2, op_id):
-    h = tf.stack(tf.add(h_1,h_2), tf.multiply(h_1, h_2) , axis=0)
+    h = tf.stack([tf.add(h_1,h_2), tf.multiply(h_1, h_2)], axis= 0)
     h = h[op_id]
     return h
 
@@ -83,56 +88,60 @@ def _rnn_fn(sample_arc, x, prev_h, w_prev, w_skip,
   def _body(step, prev_h, all_h):
     """Body function."""
 
-    inp = x[:, step, :]
+    inp = emb[:, step, :]
     print("shape of inp is: {}".format(inp.get_shape()))
 
     h = tf.matmul(prev_h, (tf.split(w_prev, 2, axis=1)[0]))
-    t= tf.matmul(inp, (tf.split(w_prev, 2, axis=1)[1]))
+    x = tf.matmul(inp, (tf.split(w_prev, 2, axis=1)[1]))
 
     #First input has to go through tanh operation
     h = tf.tanh(h)
-    t = tf.sigmoid(t)
-    s = prev_h - t * (h - prev_h)
-    layers = [s]
+    x = tf.sigmoid(x)
+    s = prev_h + x * (h - prev_h)
+    s.set_shape([batch_size, params.hidden_size])
+    layers_inp = [s]
+    prev_c = s
+    layers = []
 
     #TODO: add the c_prev and produce Ct
-    start_idx = 0
-    used = []
+    start_idx = 20
+    used_h1 = []
+    used_h2 = []
 
     for layer_id in range(num_layers):
 
+      print("layer id is : {}".format(layer_id))
       if layer_id < 4:
-        prev_h = layers[0]
-        h = tf.matmul(prev_h, (tf.split(w_skip[layer_id], 2, axis=1)[0]))
-        t = tf.matmul(inp, (tf.split(w_skip[layer_id], 2, axis=1)[1]))
-        s = t + h
-        s.set_shape([batch_size, params.hidden_size])
-        layers.append(s)
+        h = layers_inp[0]
+        layers.append(h)
+
+      elif layer_id == 4:
+        layers.append(prev_c)
 
       else:
         prev_idx_1 = sample_arc[start_idx]
         prev_idx_2 = sample_arc[start_idx + 2]
-        func_idx_1 = sample_arc[start_idx + 1]
-        func_idx_2 = sample_arc[start_idx + 3]
+        func_idx_1 = 2
+        func_idx_2 = 2
         op_id = sample_arc[start_idx + 4]
+        print("layers shape is {}".format(len(layers)))
 
-        used.append(tf.one_hot(prev_idx, depth=num_layers, dtype=tf.int32))
+        used_h1.append(tf.one_hot(prev_idx_1, depth=num_layers, dtype=tf.int32))
+        used_h2.append(tf.one_hot(prev_idx_2, depth=num_layers, dtype=tf.int32))
         prev_h_1 = tf.stack(layers, axis=0)[prev_idx_1]
         prev_h_2 = tf.stack(layers, axis=0)[prev_idx_2]
 
-        h_1 = tf.matmul(prev_h_1, (tf.split(w_skip[layer_id], 3, axis=1)[0]))
-        h_2 = tf.matmul(prev_h_2, (tf.split(w_skip[layer_id], 3, axis=1)[1]))
-        t_1 = tf.matmul(inp, (tf.split(w_skip[layer_id], 3, axis=1)[2]))
-
+        #w_skip_h = (w_skip[layer_id])[-1]
+        print("w_skip_1 {}".format((w_skip_1[layer_id - 5]).get_shape()))
+        h_1 = tf.matmul(prev_h_1, w_skip_1[layer_id - 5])
+        h_2 = tf.matmul(prev_h_2, w_skip_2[layer_id - 5])
         h_1 = _select_function(h_1, func_idx_1)
         h_2 = _select_function(h_2, func_idx_2)
-
         h = _select_op(h_1 , h_2 , op_id)
 
-        t = tf.sigmoid(t)
-        s = prev_h - t * (h - prev_h)
-        s.set_shape([batch_size, params.hidden_size])
-        layers.append(s)
+        h.set_shape([batch_size, params.hidden_size])
+        layers.append(h)
+        print("layer_id is {}".format(layer_id))
         start_idx += 5
 
     next_h = tf.add_n(layers[1:]) / tf.cast(num_layers, dtype=tf.float32)
@@ -167,7 +176,7 @@ def _set_default_params(params):
   params.add_hparam('grad_bound', 0.1)
   params.add_hparam('hidden_size', 200)
   params.add_hparam('init_range', 0.04)
-  params.add_hparam('learning_rate', 20.)
+  params.add_hparam('learning_rate', 1.)
   params.add_hparam('num_train_epochs', 600)
   params.add_hparam('vocab_size', 10000)
 
@@ -212,6 +221,7 @@ class LM(object):
     initializer = tf.initializers.random_uniform(minval=-self.params.init_range,
                                                  maxval=self.params.init_range)
     num_functions = self.params.controller_num_functions
+    num_ops = self.params.controller_num_operations
     num_layers = self.params.controller_num_layers
     hidden_size = self.params.hidden_size
     batch_size = self.params.batch_size
@@ -220,16 +230,14 @@ class LM(object):
       with tf.variable_scope('embedding'):
         w_emb = tf.get_variable('w', [self.params.vocab_size, hidden_size])
 
-
-
       with tf.variable_scope('rnn_cell'):
         w_prev = tf.get_variable('w_prev', [hidden_size, 2 * hidden_size])
 
         w_skip = []
-        for layer_id in range(1, num_layers+1):
+        for layer_id in range(5, num_layers):
           with tf.variable_scope('layer_{}'.format(layer_id)):
             w = tf.get_variable(
-                'w', [num_functions, layer_id, hidden_size, 2 * hidden_size])
+                'w', [num_functions, layer_id, hidden_size, hidden_size])
             w_skip.append(w)
 
       with tf.variable_scope('init_states'):
@@ -315,10 +323,10 @@ class LM(object):
       reg_loss += self.params.beta * tf.reduce_mean(
           (all_h[:, 1:, :] - all_h[:, :-1, :]) ** 2)
 
-    with tf.control_dependencies(carry_on):
-      loss = tf.identity(loss)
-      if is_training:
-        reg_loss = tf.identity(reg_loss)
+    #with tf.control_dependencies(carry_on):
+    loss = tf.identity(loss)
+    if is_training:
+      reg_loss = tf.identity(reg_loss)
 
     return reg_loss, loss
 
