@@ -10,6 +10,7 @@ import sys
 flags = tf.app.flags
 gfile = tf.gfile
 FLAGS = flags.FLAGS
+os.environ["CUDA_VISIBLE_DEVICES"]= '0'
 
 flags.DEFINE_boolean('reset_output_dir', False, '')
 flags.DEFINE_string('output_dir', None, '')
@@ -25,12 +26,12 @@ def lstm(x, prev_h, w_prev, w_skip, params):
 
     batch_size= x.get_shape()[0].value
     num_of_steps = tf.shape(x)[1]
-    num_layers = 6
+    num_layers = 9
     emb = x
     all_h = tf.TensorArray(dtype=tf.float32, size= num_of_steps, infer_shape=False)
 
     u_skip = []
-    #Creating the weights matrix or all layers
+    #Creating the weights matrix of all layers
     for layer_id in range(num_layers):
         u_skip.append(w_skip[layer_id])
     w_skip = u_skip
@@ -47,11 +48,13 @@ def lstm(x, prev_h, w_prev, w_skip, params):
         #x = input * w_x
         h = tf.matmul(prev_h, tf.split(w_prev, 2, axis=1)[0])
         x = tf.matmul(inp, tf.split(w_prev, 2, axis=1)[1])
+        print("Wh size is : {}".format((tf.split(w_prev, 2, axis=1)[0]).get_shape()))
+        print("Wx size is : {}".format((tf.split(w_prev, 2, axis=1)[1]).get_shape()))
 
         #perform RNN operation with s = prev_h + x*(h-prev_h)
         h = tf.tanh(h)
         x = tf.sigmoid(x)
-        s = prev_h + x *(h-prev_h)
+        s = prev_h + x * (h-prev_h)
         s.set_shape([batch_size, params.hidden_size])
         layers_inp = [s]
         prev_c = s   #cell_state
@@ -70,6 +73,8 @@ def lstm(x, prev_h, w_prev, w_skip, params):
                 # here should be the sampling of connections and operations but I will just set it to id operation
                 h.set_shape([batch_size, params.hidden_size])
                 layers.append(h)
+        print("h size is : {}".format(h.get_shape()))
+        print("x size is : {}".format(x.get_shape()))
 
         next_h = tf.add_n(layers[1:])/tf.cast(num_layers, dtype=tf.float32) #next_h is an average of all deadends (as per ENAS approach)
         all_h = all_h.write(step, next_h)
@@ -78,7 +83,7 @@ def lstm(x, prev_h, w_prev, w_skip, params):
     loop_inps = [tf.constant(0, dtype= tf.int32), prev_h, all_h]
     _, next_h, all_h = tf.while_loop(_condition, _body, loop_inps)
     all_h = tf.transpose(all_h.stack(), [1,0,2])
-    return  next_h, all_h, vars
+    return next_h, all_h, vars
 
 def _set_default_params(params):
     """Set default hyper-parameters."""
@@ -92,8 +97,8 @@ def _set_default_params(params):
     params.add_hparam('num_train_epochs', 600)
     params.add_hparam('vocab_size', 10000)
     params.add_hparam('weight_decay', 8e-7)
-    params.add_hparam('batch_size', 128)
-    params.add_hparam('bptt_steps', 35)
+    params.add_hparam('batch_size', 32)
+    params.add_hparam('bptt_steps', 10)
     return params
 
 #TODO: def the LM class
@@ -113,6 +118,8 @@ class LM(object):
          self.should_reset, self.base_bptt) = data_utils.input_producer(
             x_train, params.batch_size, params.bptt_steps, random_len=True)
 
+        print("x_train size after using data_utils: {}".format(self.x_train.get_shape()))
+
         params.add_hparam('num_train_steps', self.num_train_batches * params.num_train_epochs)
 
         # valid data
@@ -131,7 +138,7 @@ class LM(object):
 
         initializer = tf.initializers.random_uniform(minval=-self.params.init_range,
                                                      maxval=self.params.init_range)
-        num_of_layers = 6
+        num_of_layers = 9
         hidden_size = self.params.hidden_size
         batch_size = self.params.batch_size
         with tf.variable_scope(self.name, initializer=initializer):
@@ -145,16 +152,20 @@ class LM(object):
                 for layer_id in range(num_of_layers):
                     with tf.variable_scope('layer_{}'.format(layer_id)):
                         w = tf.get_variable(
-                            'w', [layer_id, hidden_size, hidden_size], initializer=initializer)
+                            'w', [layer_id, hidden_size, 2 * hidden_size], initializer=initializer)
                         w_skip.append(w)
 
             with tf.variable_scope('init_states'):
+                print("entered init_states")
                 with tf.variable_scope('batch'):
                     init_shape = [self.params.batch_size, hidden_size]
                     batch_prev_h = tf.get_variable(
-                        's', init_shape, dtype=tf.float32, trainable=False)
+                        'h', init_shape, dtype=tf.float32, trainable=False)
                     zeros = np.zeros(init_shape, dtype=np.float32)
                     batch_reset = tf.assign(batch_prev_h, zeros)
+                    print("left init_states")
+
+        print("weights are initiated ")
 
         self.num_params = sum([np.prod(v.shape) for v in tf.trainable_variables()
                                if v.name.startswith(self.name)]).value
@@ -178,7 +189,8 @@ class LM(object):
         }
 
     def _forward(self, x, y, model_params, init_states, is_training = False):
-        "To comute the logits"
+        "To compute the logits"
+        print("entered the forward")
 
         w_emb = model_params['w_emb']
         w_prev = model_params['w_prev']
@@ -190,19 +202,23 @@ class LM(object):
         batch_size = self.params.batch_size
         hidden_size = self.params.hidden_size
 
-        out_s, all_h, var_s = lstm(emb, prev_h, w_prev, w_skip,
+        out_h, all_h, var_h = lstm(emb, prev_h, w_prev, w_skip,
                                       params=self.params)
-        top_s = all_h
-        carry_on = [tf.assign(prev_h, out_s)]
-        logits = tf.einsum('bnh,vh->bnv', top_s, w_soft)
+        top_h = all_h
+        print("top_S = {}".format(top_h))
+        carry_on = [tf.assign(prev_h, out_h)]
+        logits = tf.einsum('bnh,vh->bnv', top_h, w_soft)
+        print("logits = {}".format(logits))
+
         loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y,
                                                               logits=logits)
         loss = tf.reduce_mean(loss)
 
+
         reg_loss = loss  # `loss + regularization_terms` is for training only
         if is_training:
             # L2 weight reg
-            self.l2_reg_loss = tf.add_n([tf.nn.l2_loss(w ** 2) for w in var_s])
+            self.l2_reg_loss = tf.add_n([tf.nn.l2_loss(w ** 2) for w in var_h])
             reg_loss += self.params.weight_decay * self.l2_reg_loss
 
             # activation L2 reg
@@ -212,17 +228,16 @@ class LM(object):
             reg_loss += self.params.beta * tf.reduce_mean(
                 (all_h[:, 1:, :] - all_h[:, :-1, :]) ** 2)
 
-        # with tf.control_dependencies(carry_on):
-        loss = tf.identity(loss)
-        if is_training:
-            reg_loss = tf.identity(reg_loss)
-
+        with tf.control_dependencies(carry_on):
+            loss = tf.identity(loss)
+            if is_training:
+                reg_loss = tf.identity(reg_loss)
+        print("loss before leaving the forward = {}".format(loss))
         return reg_loss, loss
 
     def _build_train(self):
         """Build training ops."""
         print('-' * 80)
-        print('Building train graph')
         reg_loss, loss = self._forward(self.x_train, self.y_train,
                                        self.train_params, self.batch_init_states,
                                        is_training=True)
@@ -246,26 +261,36 @@ class LM(object):
         self.train_op = train_op
         self.grad_norm = grad_norm
         self.learning_rate = learning_rate
+        print("Done building train graph")
 
     def _build_valid(self):
         print('Building valid graph')
         _, loss = self._forward(self.x_valid, self.y_valid,
                                 self.eval_params, self.batch_init_states)
+        print("Loss= :{}".format(loss))
         self.valid_loss = loss
+        print("forward is done")
         self.rl_loss = loss
 
     def eval_valid(self, sess):
         """Eval 1 round on valid set."""
         total_loss = 0
+        print("Eval 1 round on valid set")
         for _ in range(self.num_valid_batches):
+            #print("entered the forloop")
             sess.run(self.batch_init_states['reset'])
+            #print(sess.run(self.batch_init_states['reset'])
+            #print("Ran the init_states reset")
+            #total_loss += sess.run(self.valid_loss)
+            #print("computing total_loss")
             total_loss += sess.run(self.valid_loss)
+            #print("computed total_loss")
         valid_ppl = np.exp(total_loss / self.num_valid_batches)
         print('valid_ppl={0:<.2f}'.format(valid_ppl))
 
         return valid_ppl
 
-global_step= tf.train.get_or_create_global_step()
+#global_step= tf.train.get_or_create_global_step()
 
 def get_ops(params, x_train, x_valid):
   """Build [train, valid, test] graphs."""
@@ -287,6 +312,7 @@ def get_ops(params, x_train, x_valid):
   return ops
 
 def net_train(params):
+    print("entered train")
     tf.reset_default_graph()
 
     with gfile.GFile(params.data_path, 'rb') as finp:
@@ -296,7 +322,11 @@ def net_train(params):
         print('valid_size: {0}'.format(np.size(x_valid)))
 
     g = tf.Graph()
+    print("TF.graph is done")
+
+
     with g.as_default():
+        tf.initialize_all_variables()
         ops = get_ops(params, x_train, x_valid)
         run_ops = [
             ops['train_loss'],
@@ -315,14 +345,23 @@ def net_train(params):
         start_time = time.time()
 
         while True:
+            #print("entered the while loop for training")
+            sess.run(tf.global_variables_initializer())
+            global_step = tf.train.get_or_create_global_step()
             try:
+
                 loss, l2_reg, gn, lr, should_reset, _ = sess.run(run_ops)
                 # print('loss type is {}'.format(type(loss)))
                 accum_loss += loss
                 accum_step += 1
                 step = sess.run(global_step)
+                train_ppl = np.exp(accum_loss / accum_step)
+                print("train_ppl = {}".format(train_ppl))
+                print("loss = {}".format(loss))
+                valid_ppl = ops['eval_valid'](sess)
+                print("valid_ppl = {}".format(valid_ppl))
 
-                if step % params.log_every == 0:
+                if step % 10 == 0:
                     train_ppl = np.exp(accum_loss / accum_step)
                     mins_so_far = (time.time() - start_time) / 60.
                     log_string = 'epoch={0:<5d}'.format(epoch)
@@ -350,7 +389,7 @@ def net_train(params):
 
         sess.close()
 def main(unused_args):
-    data_path = r'H:\ubuntu_fiels\enas-rnn-search\src\ptb.pkl'
+    data_path = r'F:\workspace\enas-rnn-search\src\ptb.pkl'
     params = tf.contrib.training.HParams(
         data_path=data_path,
         log_every=20,

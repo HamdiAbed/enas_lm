@@ -22,7 +22,7 @@ from __future__ import print_function
 import os
 import pickle
 import sys
-import time
+import times
 
 import numpy as np
 import tensorflow as tf
