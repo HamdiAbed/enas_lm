@@ -22,7 +22,7 @@ from __future__ import print_function
 import os
 import pickle
 import sys
-import times
+import time
 
 import numpy as np
 import tensorflow as tf
@@ -101,20 +101,19 @@ def train(params):
         ops['should_reset'],
         ops['train_op'],
     ]
-
+    print("104 line")
+    #saver = tf.train.Saver(max_to_keep=1)
     saver = tf.train.Saver(max_to_keep=1)
     checkpoint_saver_hook = tf.train.CheckpointSaverHook(
         params.output_dir, save_steps=params.num_train_batches, saver=saver)
     hooks = [checkpoint_saver_hook]
     hooks.append(ops['controller_optimizer'].make_session_run_hook(True))
     config = tf.ConfigProto()
+    print("111 line")
     config.gpu_options.allow_growth = True
     sess = tf.train.SingularMonitoredSession(config=config, hooks=hooks,
                                              checkpoint_dir=params.output_dir)
-    #summary_hook = tf.train.SummarySaverHook(save_steps=params.num_train_batches,
-    #                                         save_secs=120,
-     #                                        output_dir=params.output_dir,
-      #                                       scaffold=tf.train.Scaffold(summary_op=tf.summary.merge_all()))
+    print("114 line")
     accum_loss = 0
     accum_step = 0
     epoch = 0
@@ -123,12 +122,17 @@ def train(params):
 
     while True:
       try:
+        #print('124 line')
         loss, l2_reg, gn, lr, should_reset, _ = sess.run(run_ops)
-
+        #print("line 126 check")
         #print('loss type is {}'.format(type(loss)))
         accum_loss += loss
         accum_step += 1
+        #init = tf.global_variables_initializer()
+        #sess.run(init)
+        #print('131 line')
         step = sess.run(ops['global_step'])
+
         if step % params.log_every == 0:
           train_ppl = np.exp(accum_loss / accum_step)
           mins_so_far = (time.time() - start_time) / 60.
@@ -158,9 +162,6 @@ def train(params):
         last_checkpoint = tf.train.latest_checkpoint(params.output_dir)
         print('rolling back to previous checkpoint {0}'.format(last_checkpoint))
         saver.restore(sess, last_checkpoint)
-
-
-
 
     sess.close()
 

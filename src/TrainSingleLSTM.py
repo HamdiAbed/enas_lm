@@ -26,7 +26,7 @@ def lstm(x, prev_h, w_prev, w_skip, params):
 
     batch_size= x.get_shape()[0].value
     num_of_steps = tf.shape(x)[1]
-    num_layers = 9
+    num_layers = 7
     emb = x
     all_h = tf.TensorArray(dtype=tf.float32, size= num_of_steps, infer_shape=False)
 
@@ -76,13 +76,14 @@ def lstm(x, prev_h, w_prev, w_skip, params):
         print("h size is : {}".format(h.get_shape()))
         print("x size is : {}".format(x.get_shape()))
 
+        #TODO: add used layers and average them
         next_h = tf.add_n(layers[1:])/tf.cast(num_layers, dtype=tf.float32) #next_h is an average of all deadends (as per ENAS approach)
         all_h = all_h.write(step, next_h)
         return step + 1, next_h, all_h
 
     loop_inps = [tf.constant(0, dtype= tf.int32), prev_h, all_h]
     _, next_h, all_h = tf.while_loop(_condition, _body, loop_inps)
-    all_h = tf.transpose(all_h.stack(), [1,0,2])
+    all_h = tf.transpose(all_h.stack(), [1, 0, 2])
     return next_h, all_h, vars
 
 def _set_default_params(params):
@@ -97,11 +98,10 @@ def _set_default_params(params):
     params.add_hparam('num_train_epochs', 600)
     params.add_hparam('vocab_size', 10000)
     params.add_hparam('weight_decay', 8e-7)
-    params.add_hparam('batch_size', 32)
-    params.add_hparam('bptt_steps', 10)
+    params.add_hparam('batch_size', 64)
+    params.add_hparam('bptt_steps', 35)
     return params
 
-#TODO: def the LM class
 class LM(object):
     """Language Model"""
 
@@ -138,7 +138,7 @@ class LM(object):
 
         initializer = tf.initializers.random_uniform(minval=-self.params.init_range,
                                                      maxval=self.params.init_range)
-        num_of_layers = 9
+        num_of_layers = 7
         hidden_size = self.params.hidden_size
         batch_size = self.params.batch_size
         with tf.variable_scope(self.name, initializer=initializer):
@@ -206,39 +206,43 @@ class LM(object):
                                       params=self.params)
         top_h = all_h
         print("top_S = {}".format(top_h))
-        carry_on = [tf.assign(prev_h, out_h)]
+        #carry_on = [tf.assign(prev_h, out_h)]
         logits = tf.einsum('bnh,vh->bnv', top_h, w_soft)
-        print("logits = {}".format(logits))
+        with tf.Session().as_default():
+            print("Logits = {}".format(logits.eval()))
 
         loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y,
                                                               logits=logits)
-        loss = tf.reduce_mean(loss)
-
 
         reg_loss = loss  # `loss + regularization_terms` is for training only
         if is_training:
-            # L2 weight reg
-            self.l2_reg_loss = tf.add_n([tf.nn.l2_loss(w ** 2) for w in var_h])
-            reg_loss += self.params.weight_decay * self.l2_reg_loss
+
+            loss = tf.reduce_mean(loss)
+
+        """
+           # # L2 weight reg
+           # self.l2_reg_loss = tf.add_n([tf.nn.l2_loss(w ** 2) for w in var_h])
+            #reg_loss += self.params.weight_decay * self.l2_reg_loss
 
             # activation L2 reg
-            reg_loss += self.params.alpha * tf.reduce_mean(all_h ** 2)
+            #reg_loss += self.params.alpha * tf.reduce_mean(all_h ** 2)
 
             # activation slowness reg
-            reg_loss += self.params.beta * tf.reduce_mean(
-                (all_h[:, 1:, :] - all_h[:, :-1, :]) ** 2)
+            #reg_loss += self.params.beta * tf.reduce_mean(
+                #(all_h[:, 1:, :] - all_h[:, :-1, :]) ** 2)
 
         with tf.control_dependencies(carry_on):
             loss = tf.identity(loss)
             if is_training:
                 reg_loss = tf.identity(reg_loss)
+        """
         print("loss before leaving the forward = {}".format(loss))
-        return reg_loss, loss
+        return reg_loss, loss, logits
 
     def _build_train(self):
         """Build training ops."""
         print('-' * 80)
-        reg_loss, loss = self._forward(self.x_train, self.y_train,
+        reg_loss, loss, logits1 = self._forward(self.x_train, self.y_train,
                                        self.train_params, self.batch_init_states,
                                        is_training=True)
 
@@ -265,7 +269,7 @@ class LM(object):
 
     def _build_valid(self):
         print('Building valid graph')
-        _, loss = self._forward(self.x_valid, self.y_valid,
+        _, loss, logits2 = self._forward(self.x_valid, self.y_valid,
                                 self.eval_params, self.batch_init_states)
         print("Loss= :{}".format(loss))
         self.valid_loss = loss
@@ -284,7 +288,8 @@ class LM(object):
             #total_loss += sess.run(self.valid_loss)
             #print("computing total_loss")
             total_loss += sess.run(self.valid_loss)
-            #print("computed total_loss")
+            print("computed total_loss")
+
         valid_ppl = np.exp(total_loss / self.num_valid_batches)
         print('valid_ppl={0:<.2f}'.format(valid_ppl))
 
@@ -301,7 +306,7 @@ def get_ops(params, x_train, x_valid):
       'learning_rate': lm.learning_rate,
       'grad_norm': lm.grad_norm,
       'train_loss': lm.train_loss,
-      'l2_reg_loss': lm.l2_reg_loss,
+      #'l2_reg_loss': lm.l2_reg_loss,
       'global_step': tf.train.get_or_create_global_step(),
       'reset_batch_states': lm.batch_init_states['reset'],
       'eval_valid': lm.eval_valid,
@@ -317,6 +322,7 @@ def net_train(params):
 
     with gfile.GFile(params.data_path, 'rb') as finp:
         x_train, x_valid, _, _, _ = pickle.load(finp)
+        print("x_train(1-10): {}".format(x_train))
         print('-' * 80)
         print('train_size: {0}'.format(np.size(x_train)))
         print('valid_size: {0}'.format(np.size(x_valid)))
@@ -330,7 +336,7 @@ def net_train(params):
         ops = get_ops(params, x_train, x_valid)
         run_ops = [
             ops['train_loss'],
-            ops['l2_reg_loss'],
+            #ops['l2_reg_loss'],
             ops['grad_norm'],
             ops['learning_rate'],
             ops['should_reset'],
@@ -350,16 +356,14 @@ def net_train(params):
             global_step = tf.train.get_or_create_global_step()
             try:
 
-                loss, l2_reg, gn, lr, should_reset, _ = sess.run(run_ops)
+                loss, gn, lr, should_reset, _ = sess.run(run_ops)
+
                 # print('loss type is {}'.format(type(loss)))
                 accum_loss += loss
                 accum_step += 1
                 step = sess.run(global_step)
                 train_ppl = np.exp(accum_loss / accum_step)
-                print("train_ppl = {}".format(train_ppl))
-                print("loss = {}".format(loss))
                 valid_ppl = ops['eval_valid'](sess)
-                print("valid_ppl = {}".format(valid_ppl))
 
                 if step % 10 == 0:
                     train_ppl = np.exp(accum_loss / accum_step)
@@ -368,7 +372,7 @@ def net_train(params):
                     log_string += ' step={0:<7d}'.format(step)
                     log_string += ' ppl={0:<9.2f}'.format(train_ppl)
                     log_string += ' lr={0:<7.2f}'.format(lr)
-                    log_string += ' |w|={0:<6.2f}'.format(l2_reg)
+                    #log_string += ' |w|={0:<6.2f}'.format(l2_reg)
                     log_string += ' |g|={0:<6.2f}'.format(gn)
                     log_string += ' mins={0:<.2f}'.format(mins_so_far)
                     print(log_string)
@@ -389,7 +393,7 @@ def net_train(params):
 
         sess.close()
 def main(unused_args):
-    data_path = r'F:\workspace\enas-rnn-search\src\ptb.pkl'
+    data_path = r'/\src\ptb.pkl'
     params = tf.contrib.training.HParams(
         data_path=data_path,
         log_every=20,

@@ -34,7 +34,7 @@ flags.DEFINE_float('controller_learning_rate', 5e-5, '')
 flags.DEFINE_integer('controller_num_layers', 9, '')
 
 
-REWARD_CONSTANT = 80.0
+REWARD_CONSTANT = 150.0
 
 
 def _build_train_op(loss, tf_vars, learning_rate, train_step, num_aggregate):
@@ -127,7 +127,6 @@ class Controller(object):
     all_h_w = [tf.zeros([1, hidden_size], dtype=tf.float32)]
 
     # sampler ops
-    inputs = self.g_emb
     prev_c = tf.zeros([1, hidden_size], dtype=tf.float32)
     prev_h = tf.zeros([1, hidden_size], dtype=tf.float32)
 
@@ -179,7 +178,7 @@ class Controller(object):
           tf.concat(all_h[:-1], axis=0), skip_index)
         inputs /= (0.1 + tf.to_float(layer_id - skip_index))
 
-        if layer_id % 2 ==0 :
+        if layer_id % 2 ==0:
           arc_seq.append([0])
         else:
           arc_seq.append([1])
@@ -193,7 +192,7 @@ class Controller(object):
         #if self.params.controller_tanh_constant:
         #  logits = self.params.controller_tanh_constant * tf.tanh(logits)
         #func = tf.multinomial(logits, 1)
-        #func = tf.to_int32(func)
+        #func = tf.to_int32(fuc)
         #func = tf.reshape(func, [1])
         #arc_seq.append(func)
         #log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(

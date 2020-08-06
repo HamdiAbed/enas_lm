@@ -1,0 +1,22 @@
+x_valid = [1993 5502 9680 ... 4470   45   43]
+--------------------------------------------------------------------------------
+Building model params
+LSTM has 1405776 num of params
+Building training graph
+x_valid = [1993 5502 9680 ... 4470   45   43]
+--------------------------------------------------------------------------------
+Building model params
+LSTM has 1405776 num of params
+Building training graph
+x_valid = [1993 5502 9680 ... 4470   45   43]
+--------------------------------------------------------------------------------
+Building model params
+LSTM has 1405776 num of params
+Building training graph
+size of ht before reshape= (16, 128)
+size of ht after linear layer= (16, 10000)
+size of y= (16, ?)
+Building validation graph
+size of ht before reshape= (16, 128)
+size of ht after linear layer= (16, 10000)
+size of y= (16, 35)

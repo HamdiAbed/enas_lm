@@ -30,11 +30,11 @@ flags = tf.app.flags
 FLAGS = flags.FLAGS
 
 
-flags.DEFINE_integer('child_batch_size', 12, '')
+flags.DEFINE_integer('child_batch_size', 8, '')
 flags.DEFINE_integer('child_bptt_steps', 35, '')
 
 global emb
-def _lstm(sample_arc, x,prev_c, prev_h,w_lstm,
+def _lstm(x,prev_c, prev_h,w_lstm,
             params):
   """Multi-layer LSTM.
   Args:
@@ -51,8 +51,7 @@ def _lstm(sample_arc, x,prev_c, prev_h,w_lstm,
   """
   batch_size = x.get_shape()[0].value
   num_steps = tf.shape(x)[1]
-  num_layers = len(sample_arc) // 5
-  print("num of layers= {}".format(num_layers))
+  num_layers = len(w_lstm)
   emb = x
   var_h = w_lstm
   all_h = [tf.TensorArray(dtype=tf.float32, size=num_steps, infer_shape=False) for _ in range(num_layers)]
@@ -71,68 +70,21 @@ def _lstm(sample_arc, x,prev_c, prev_h,w_lstm,
     return tf.less(step, num_steps)
 
   def _body(step, pprev_c, pprev_h, all_h):
-    """Body function."""
-
-    inp = emb[:, step, :]
-    print("shape of inp is: {}".format(inp.get_shape()))
-
-    layers = []
-    start_idx = 20
-    used_h1 = []
-    used_h2 = []
-    print("sample_arch = {}".format(len(sample_arc)))
-    print("sample_arch[25] = {}".format(sample_arc[25]))
-    print("num_layers = {}".format(num_layers))
-    hid_size = params.hidden_size
-    var_h = w_lstm
-    next_h , next_c = [], []
+    """Apply LSTM at each step."""
+    next_c, next_h = [], []
     for layer_id, (p_c, p_h, w) in enumerate(zip(
             pprev_c, pprev_h, w_lstm)):
-      inp = emb[:, step, :] if layer_id == 0 else next_h[-1]
-      if layer_id < 4:
-        print("Layer_id = {}".format(layer_id))
-        # pre-lstm layer ( will be the first 4 nodes)
-        h = tf.matmul(p_h, (tf.split(w_lstm[layer_id], 2, axis=0)[0]))
-        x = tf.matmul(inp, (tf.split(w_lstm[layer_id], 2, axis=0)[1]))
-        h = tf.tanh(h)
-        x = tf.sigmoid(x)
-        ht = p_c[layer_id] + x * (h - p_h[layer_id])
-        ht.set_shape([batch_size, hid_size])
-        layers.append(ht)
-
-      elif layer_id == 4:
-        #The 5th layer is always the next_c
-        print("Layer_id = {}".format(layer_id))
-        #c = tf.sigmoid(layers[0]) * tf.tanh(layers[1]) + tf.sigmoid(layers[2]) * pprev_c[layer_id]
-        layers.append(layers[2])
-
-      else:
-        #arc_seq = [con_1, func_1, con_2, func_2, op1 ,......,op_num_of_layers]
-        print("Layer_id = {}".format(layer_id))
-        prev_idx_1 = sample_arc[start_idx]
-        prev_idx_2 = sample_arc[start_idx + 2]
-        func_idx_1 = sample_arc[start_idx + 1]
-        func_idx_2 = sample_arc[start_idx + 3]
-        op_id = sample_arc[start_idx + 4]
-
-        #select a previous layer to connect
-        used_h1.append(tf.one_hot(prev_idx_1, depth=num_layers, dtype=tf.int32))
-        used_h2.append(tf.one_hot(prev_idx_2, depth=num_layers, dtype=tf.int32))
-        prev_h_1 = tf.stack(layers, axis=0)[prev_idx_1]
-        prev_h_2 = tf.stack(layers, axis=0)[prev_idx_2]
-
-        #Weighting, activation function, and selecting an operation for the connections
-        h_1 = tf.matmul(prev_h_1, tf.split(w_lstm[layer_id - 1], 2, axis = 0)[0])
-        h_2 = tf.matmul(prev_h_2, tf.split(w_lstm[layer_id - 1], 2, axis = 0)[1])
-        h_1 = _select_function(h_1, func_idx_1)
-        h_2 = _select_function(h_2, func_idx_2)
-        h = _select_op(h_1, h_2, op_id)
-
-        h.set_shape([batch_size, params.hidden_size])
-        layers.append(h)
-        start_idx += 5
+      inp = x[:, step, :] if layer_id == 0 else next_h[-1]
+      ifog = tf.matmul(tf.concat([inp, p_h], axis=1), w)
+      i, f, o, g = tf.split(ifog, 4, axis=1)
+      i = tf.sigmoid(i)
+      f = tf.sigmoid(f)
+      o = tf.sigmoid(o)
+      g = tf.tanh(g)
+      c = i * g + f * p_c
+      h = o * tf.tanh(c)
       all_h[layer_id] = all_h[layer_id].write(step, h)
-      next_c.append(h)
+      next_c.append(c)
       next_h.append(h)
     return step + 1, next_c, next_h, all_h
 
@@ -146,7 +98,7 @@ def _lstm(sample_arc, x,prev_c, prev_h,w_lstm,
 def _set_default_params(params):
   """Set default hyper-parameters."""
   params.add_hparam('alpha', 0.0)  # activation L2 reg
-  params.add_hparam('beta', 0.0)  # activation slowness reg
+  params.add_hparam('beta', 1.)  # activation slowness reg
   params.add_hparam('best_valid_ppl_threshold', 5)
 
   params.add_hparam('batch_size', FLAGS.child_batch_size)
@@ -161,15 +113,15 @@ def _set_default_params(params):
   params.add_hparam('drop_w', 0.00)  # weight
 
   params.add_hparam('grad_bound', 0.1)
-  params.add_hparam('hidden_size', 128)
-  params.add_hparam('init_range', 0.1)
-  params.add_hparam('learning_rate', 0.01)
+  params.add_hparam('hidden_size', 100)
+  params.add_hparam('init_range', 0.04)
+  params.add_hparam('learning_rate', 1.)
   params.add_hparam('num_train_epochs', 600)
   params.add_hparam('vocab_size', 10000)
-  params.add_hparam('emb_size', 64)
+  params.add_hparam('emb_size', 100)
 
   params.add_hparam('weight_decay', 8e-7)
-  params.add_hparam('num_layers', 9)
+  params.add_hparam('num_layers', 1)
 
   return params
 
@@ -227,19 +179,21 @@ class LM(object):
       with tf.variable_scope('LSTM_cell'):
         w_lstm= []
         for layer_id in range(num_layers):
-          #inp_size = self.params.emb_size if layer_id == 0 else self.params.hidden_size
-          #hidden_size = (self.params.emb_size if layer_id == num_layers - 1 else self.params.hidden_size)
-          hidden_size= self.params.hidden_size
+          inp_size = self.params.emb_size if layer_id == 0 else self.params.hidden_size
+          hidden_size = (self.params.emb_size if layer_id == num_layers - 1 else self.params.hidden_size)
+          #hidden_size= self.params.hidden_size
 
           with tf.variable_scope('layer_{}'.format(layer_id)):
             w = tf.get_variable(
-              'w', [2 * self.params.hidden_size, self.params.hidden_size], initializer=initializer)
+              'w', [inp_size + hidden_size, 4 * hidden_size], initializer=initializer)
             w_lstm.append(w)
 
       with tf.variable_scope('init_states'):
         batch_prev_c , batch_prev_h, batch_reset = [], [], []
         for layer_id in range(num_layers):
-          hidden_size = self.params.hidden_size
+          inp_size = self.params.emb_size if layer_id == 0 else self.params.hidden_size
+          hidden_size = (self.params.emb_size if layer_id == num_layers - 1 else self.params.hidden_size)
+          #hidden_size = self.params.hidden_size
           with tf.variable_scope('layer_{}'.format(layer_id)):
             with tf.variable_scope('batch'):
               init_shape = [self.params.batch_size, hidden_size]
@@ -304,7 +258,7 @@ class LM(object):
     sample_arc = self.sample_arc
     print("emb_size :{}".format(emb.get_shape()))
     print("Child line 308")
-    out_c, out_h, all_h, var_h = _lstm(sample_arc, emb, prev_c, prev_h, w_lstm, params= self.params)
+    out_c, out_h, all_h, var_h = _lstm(emb, prev_c, prev_h, w_lstm, params= self.params)
     print("Child line 310")
     top_h = all_h[-1]
     carry_on = []

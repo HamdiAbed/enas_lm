@@ -27,8 +27,8 @@ import time
 import numpy as np
 import tensorflow as tf
 
-from enas_lm.src import lstm_lib
-from enas_lm.src import utils
+import lstm_lib
+import utils
 
 
 flags = tf.app.flags
@@ -46,7 +46,7 @@ def get_ops(params, x_train, x_valid, x_test):
   """Build [train, valid, test] graphs."""
 
   lm = lstm_lib.LM(params, x_train, x_valid, x_test)
-  params.add_hparam('num_train_batches', lm.num_train_batches)
+  params.add_hparam('_batches', lm.num_train_batches)
   ops = {
       'train_op': lm.train_op,
       'learning_rate': lm.learning_rate,
@@ -71,7 +71,9 @@ def get_ops(params, x_train, x_valid, x_test):
 
 def train(params):
   """Entry point for training."""
-  with gfile.GFile(params.data_path, 'rb') as finp:
+  data_path = r'F:\workspace\enas_lm\src\ptb.pkl'
+  #with gfile.GFile(params.data_path, 'rb') as finp:
+  with gfile.GFile(data_path, 'rb') as finp:
     x_train, x_valid, x_test, _, _ = pickle.load(finp)
     print('-' * 80)
     print('train_size: {0}'.format(np.size(x_train)))
@@ -91,8 +93,9 @@ def train(params):
     ]
 
     saver = tf.train.Saver(max_to_keep=1)
+    output_dir = r'F:\workspace\enas_lm\src\output'
     checkpoint_saver_hook = tf.train.CheckpointSaverHook(
-        params.output_dir, save_steps=params.num_train_batches, saver=saver)
+        output_dir, save_steps=params.num_train_batches, saver=saver)
     hooks = [checkpoint_saver_hook]
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
@@ -145,7 +148,8 @@ def train(params):
 
 
 def main(unused_args):
-  output_dir = FLAGS.output_dir
+  #output_dir = FLAGS.output_dir
+  output_dir = r'F:\workspace\enas_lm\src\output'
   print('-' * 80)
   if not gfile.IsDirectory(output_dir):
     print('Path {} does not exist. Creating'.format(output_dir))

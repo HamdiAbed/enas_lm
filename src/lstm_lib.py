@@ -22,8 +22,8 @@ from __future__ import print_function
 import numpy as np
 import tensorflow as tf
 
-from enas_lm.src import data_utils
-from enas_lm.src import utils
+import data_utils
+import utils
 
 MOVING_AVERAGE_DECAY = 0.9995
 
@@ -48,7 +48,6 @@ def _lstm(x, prev_c, prev_h, w_lstm, layer_masks):
     prev_h: [[batch_size, hidden_size] * num_layers].
     w_lstm: [[2 * hidden_size, 4 * hidden_size] * num_layers].
     layer_masks: [([hidden_size, hidden_size] or None)* num_layers].
-
   Returns:
     next_c: [[batch_size, hidden_size] * num_layers].
     next_h: [[batch_size, hidden_size] * num_layers].

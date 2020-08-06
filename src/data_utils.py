@@ -42,6 +42,7 @@ def input_producer(raw_data, batch_size, num_steps, shuffle=False,
   """
 
   num_batches_per_epoch = ((np.size(raw_data) // batch_size) - 1) // num_steps
+  #print("raw_data: {}".format(raw_data))
   raw_data = tf.convert_to_tensor(raw_data, name='raw_data', dtype=tf.int32)
 
   data_len = tf.size(raw_data)
