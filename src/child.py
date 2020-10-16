@@ -30,32 +30,49 @@ flags = tf.app.flags
 FLAGS = flags.FLAGS
 
 
-flags.DEFINE_integer('child_batch_size', 12, '')
+flags.DEFINE_integer('child_batch_size', 128, '')
 flags.DEFINE_integer('child_bptt_steps', 35, '')
 
 global emb
-def _lstm(sample_arc, x,prev_c, prev_h,w_lstm,
+def _lstm(sample_arc, x,prev_c, prev_h,w_0, w_lstm,
             params):
   """Multi-layer LSTM.
   Args:
     sample_arc: [5 * num_layers], sequence of tokens representing architecture.
-    x: [batch_size, num_steps, hidden_size].
-    prev_h: [batch_size, hidden_size].
+    x: [batch_size, num_steps, input_size].
+    prev_h:  [batch_size, hidden_size].
     prev_c: [batch_size, hidden_size].
-    w_lstm: [None, [2 * hidden_size, hidden_size] * (num_layers)].
+    w_0 : [emb_size , hid_size]
+    w_lstm: [None, [inp + hid * hidden_size] * (num_layers)].
     params: hyper-params object.
   Returns:
     next_h: [batch_size, hidden_size].
     next_c: [batch_size, hidden_size].
-    all_h: [[batch_size, num_steps, hidden_size] * num_layers].
+    all_h: [batch_size, num_steps, hidden_size].
   """
   batch_size = x.get_shape()[0].value
   num_steps = tf.shape(x)[1]
   num_layers = len(sample_arc) // 5
   print("num of layers= {}".format(num_layers))
   emb = x
-  var_h = w_lstm
-  all_h = [tf.TensorArray(dtype=tf.float32, size=num_steps, infer_shape=False) for _ in range(num_layers)]
+  all_h = tf.TensorArray(dtype=tf.float32, size=num_steps, infer_shape=False)
+
+  w_real = [] #adding the w_lstm for chosen conns, fns, and op
+  start_idx = 5
+
+  for layer_id in range(num_layers - 2):
+    prev_idx_1 = sample_arc[start_idx]
+    prev_idx_2 = sample_arc[start_idx + 2]
+    func_idx_1 = sample_arc[start_idx + 1]
+    func_idx_2 = sample_arc[start_idx + 3]
+    op_id = sample_arc[start_idx + 4]
+    w_real.append(w_lstm[layer_id][prev_idx_1, prev_idx_2,
+                  func_idx_1, func_idx_2, op_id])
+    start_idx += 5
+
+  w_lstm = w_real
+  vars_h = [w_0] + w_lstm
+
 
   def _select_function(h, function_id):
     h = tf.stack([tf.tanh(h), tf.sigmoid(h), h, h * 0], axis=0)
@@ -72,48 +89,49 @@ def _lstm(sample_arc, x,prev_c, prev_h,w_lstm,
 
   def _body(step, pprev_c, pprev_h, all_h):
     """Body function."""
-
     inp = emb[:, step, :]
     print("shape of inp is: {}".format(inp.get_shape()))
 
     layers = []
-    start_idx = 20
     used_h1 = []
     used_h2 = []
-    print("sample_arch = {}".format(len(sample_arc)))
-    print("sample_arch[25] = {}".format(sample_arc[25]))
-    print("num_layers = {}".format(num_layers))
     hid_size = params.hidden_size
-    var_h = w_lstm
-    next_h , next_c = [], []
-    for layer_id, (p_c, p_h, w) in enumerate(zip(
-            pprev_c, pprev_h, w_lstm)):
-      inp = emb[:, step, :] if layer_id == 0 else next_h[-1]
-      if layer_id < 4:
-        print("Layer_id = {}".format(layer_id))
-        # pre-lstm layer ( will be the first 4 nodes)
-        h = tf.matmul(p_h, (tf.split(w_lstm[layer_id], 2, axis=0)[0]))
-        x = tf.matmul(inp, (tf.split(w_lstm[layer_id], 2, axis=0)[1]))
+    print("entered the body")
+
+    p_h = pprev_h
+    p_c = pprev_c
+
+    start_idx = 5
+    for layer_id in range(num_layers):
+      inp = emb[:, step, :]
+
+      #inp_size = tf.shape(inp)[-1] if layer_id < 4 else tf.shape(p_h)[-1]
+      print("layer_id is {}".format(layer_id))
+
+      if layer_id < 3:
+        next_c = p_c
+
+      elif layer_id == 3 : next_c = layers[2]
+
+      if layer_id == 0:
+        h = tf.matmul(p_h, (tf.split(w_0, [tf.shape(inp)[-1], tf.shape(p_h)[-1]], axis=0)[1]))
+        x = tf.matmul(inp, (tf.split(w_0, [tf.shape(inp)[-1], tf.shape(p_h)[-1]], axis=0)[0]))
         h = tf.tanh(h)
         x = tf.sigmoid(x)
-        ht = p_c[layer_id] + x * (h - p_h[layer_id])
+        ht = x + h
         ht.set_shape([batch_size, hid_size])
+        print("for layer_id : 0 , w_lstm has size {}".format(w_0))
         layers.append(ht)
-
-      elif layer_id == 4:
-        #The 5th layer is always the next_c
-        print("Layer_id = {}".format(layer_id))
-        #c = tf.sigmoid(layers[0]) * tf.tanh(layers[1]) + tf.sigmoid(layers[2]) * pprev_c[layer_id]
-        layers.append(layers[2])
-
+      elif layer_id == 1:
+        layers.append(p_c)
       else:
         #arc_seq = [con_1, func_1, con_2, func_2, op1 ,......,op_num_of_layers]
-        print("Layer_id = {}".format(layer_id))
         prev_idx_1 = sample_arc[start_idx]
         prev_idx_2 = sample_arc[start_idx + 2]
         func_idx_1 = sample_arc[start_idx + 1]
         func_idx_2 = sample_arc[start_idx + 3]
         op_id = sample_arc[start_idx + 4]
+        print("for layer_id : {} , w_lstm has size {}".format(layer_id, w_lstm[layer_id - 2]))
 
         #select a previous layer to connect
         used_h1.append(tf.one_hot(prev_idx_1, depth=num_layers, dtype=tf.int32))
@@ -122,25 +140,25 @@ def _lstm(sample_arc, x,prev_c, prev_h,w_lstm,
         prev_h_2 = tf.stack(layers, axis=0)[prev_idx_2]
 
         #Weighting, activation function, and selecting an operation for the connections
-        h_1 = tf.matmul(prev_h_1, tf.split(w_lstm[layer_id - 1], 2, axis = 0)[0])
-        h_2 = tf.matmul(prev_h_2, tf.split(w_lstm[layer_id - 1], 2, axis = 0)[1])
+        h_1 = tf.matmul(prev_h_1, tf.split(w_lstm[layer_id - 2], 2, axis=0)[0])
+        h_2 = tf.matmul(prev_h_2, tf.split(w_lstm[layer_id - 2], 2, axis=0)[1])
         h_1 = _select_function(h_1, func_idx_1)
         h_2 = _select_function(h_2, func_idx_2)
         h = _select_op(h_1, h_2, op_id)
-
         h.set_shape([batch_size, params.hidden_size])
         layers.append(h)
         start_idx += 5
-      all_h[layer_id] = all_h[layer_id].write(step, h)
-      next_c.append(h)
-      next_h.append(h)
+
+    next_h = layers[-1]
+    all_h = all_h.write(step, next_h)
     return step + 1, next_c, next_h, all_h
 
   loop_inps = [tf.constant(0, dtype=tf.int32), prev_c, prev_h, all_h]
   _, next_c, next_h, all_h = tf.while_loop(_condition, _body, loop_inps)
-  all_h = [tf.transpose(h.stack(), [1, 0, 2]) for h in all_h]
 
-  return next_c, next_h, all_h, var_h
+  all_h = tf.transpose(all_h.stack(), [1, 0, 2])
+
+  return next_c, next_h, all_h, vars_h
 
 
 def _set_default_params(params):
@@ -160,16 +178,16 @@ def _set_default_params(params):
   params.add_hparam('drop_o', 0.0)  # output
   params.add_hparam('drop_w', 0.00)  # weight
 
-  params.add_hparam('grad_bound', 0.1)
-  params.add_hparam('hidden_size', 128)
-  params.add_hparam('init_range', 0.1)
+  params.add_hparam('grad_bound', 0.25)
+  params.add_hparam('hidden_size',256)
+  params.add_hparam('init_range', 0.04)
   params.add_hparam('learning_rate', 0.01)
-  params.add_hparam('num_train_epochs', 600)
+  params.add_hparam('num_train_epochs', 500)
   params.add_hparam('vocab_size', 10000)
-  params.add_hparam('emb_size', 64)
+  params.add_hparam('emb_size', 512)
 
   params.add_hparam('weight_decay', 8e-7)
-  params.add_hparam('num_layers', 9)
+  params.add_hparam('num_layers', 6)
 
   return params
 
@@ -222,33 +240,34 @@ class LM(object):
     with tf.variable_scope(self.name, initializer=initializer):
 
       with tf.variable_scope('embedding'):
-        w_emb = tf.get_variable('w', [self.params.vocab_size, self.params.hidden_size])
+        w_emb = tf.get_variable('w', [self.params.vocab_size, self.params.emb_size])
+        w_soft = tf.get_variable('w_soft', [self.params.hidden_size, self.params.vocab_size])
+        b = tf.get_variable('b',shape = [self.params.batch_size, self.params.vocab_size])
 
       with tf.variable_scope('LSTM_cell'):
-        w_lstm= []
-        for layer_id in range(num_layers):
-          #inp_size = self.params.emb_size if layer_id == 0 else self.params.hidden_size
-          #hidden_size = (self.params.emb_size if layer_id == num_layers - 1 else self.params.hidden_size)
+        w_0 = tf.get_variable('w_0', [self.params.emb_size + self.params.hidden_size, self.params.hidden_size])
+        w_lstm = []
+        for layer_id in range(2, num_layers):
+          #inp_size = self.params.emb_size if layer_id < 1 else self.params.hidden_size
           hidden_size= self.params.hidden_size
-
           with tf.variable_scope('layer_{}'.format(layer_id)):
             w = tf.get_variable(
-              'w', [2 * self.params.hidden_size, self.params.hidden_size], initializer=initializer)
+              'w', [layer_id, layer_id, num_functions,  num_functions, num_ops,
+                     2 * hidden_size, hidden_size], initializer=initializer)
             w_lstm.append(w)
 
       with tf.variable_scope('init_states'):
-        batch_prev_c , batch_prev_h, batch_reset = [], [], []
-        for layer_id in range(num_layers):
-          hidden_size = self.params.hidden_size
-          with tf.variable_scope('layer_{}'.format(layer_id)):
-            with tf.variable_scope('batch'):
-              init_shape = [self.params.batch_size, hidden_size]
-              batch_prev_c.append(tf.get_variable('c', init_shape, dtype=tf.float32, trainable=False))
-              batch_prev_h.append(tf.get_variable('h', init_shape, dtype=tf.float32, trainable=False))
-              zeros = np.zeros(init_shape, dtype=np.float32)
-              batch_reset.append(tf.assign(batch_prev_c[-1], zeros))
-              batch_reset.append(tf.assign(batch_prev_h[-1], zeros))
-
+        batch_prev_c, batch_prev_h, batch_reset = [], [], []
+        hidden_size = self.params.hidden_size
+        init_shape = [self.params.batch_size, hidden_size]
+        #  with tf.variable_scope('layer_{}'.format(layer_id)):
+        batch_prev_h = tf.get_variable('h', init_shape, dtype=tf.float32, trainable=False)
+        zeros = np.zeros(init_shape, dtype=np.float32)
+        # batch_reset.append(tf.assign(batch_prev_c[-1], zeros))
+        batch_reset.append(tf.assign(batch_prev_h, zeros))
+        zeros = np.zeros(init_shape, dtype=np.float32)
+        batch_prev_c = tf.get_variable('c', init_shape, dtype=tf.float32, trainable=False)
+        batch_reset.append(tf.assign(batch_prev_c, zeros))
     self.num_params = sum([np.prod(v.shape) for v in tf.trainable_variables()])
     print('All children have {0} params'.format(self.num_params))
 
@@ -268,15 +287,17 @@ class LM(object):
     }
     self.train_params = {
         'w_emb': w_emb,
-        #'w_1': w_first,
+        'w_0':w_0,
+        'b':b,
         'w_lstm':  w_lstm,
-        'w_soft': w_emb}
+        'w_soft': w_soft}
 
     self.eval_params = {
         'w_emb': w_emb,
-        #'w_1': w_first,
+        'w_0':w_0,
+        'b': b,
         'w_lstm': w_lstm,
-        'w_soft': w_emb,
+        'w_soft': w_soft,
     }
 
   def _forward(self, x, y, model_params, init_states, is_training=False):
@@ -290,32 +311,46 @@ class LM(object):
     Returns:
       loss: scalar, cross-entropy loss
     """
+    print("entered the forward function")
     w_emb = model_params['w_emb']
-    #w_lstm = model_params['w_lstm']
     w_lstm = model_params['w_lstm']
     w_soft = model_params['w_soft']
+    w_0 = model_params['w_0']
     prev_h = init_states['h']
     prev_c = init_states['c']
-    #w_1 = model_params['w_1']
+    b = model_params['b']
 
+    print("X before embedding {}".format(x))
+    print("emb before embedding {}".format(w_emb))
     emb = tf.nn.embedding_lookup(w_emb, x)
+    print("emb_befoer_LSTM = {}".format(emb))
     batch_size = self.params.batch_size
     hidden_size = self.params.hidden_size
     sample_arc = self.sample_arc
-    print("emb_size :{}".format(emb.get_shape()))
-    print("Child line 308")
-    out_c, out_h, all_h, var_h = _lstm(sample_arc, emb, prev_c, prev_h, w_lstm, params= self.params)
-    print("Child line 310")
-    top_h = all_h[-1]
-    carry_on = []
-    for var, val in zip(prev_c + prev_h, out_c + out_h):
-      carry_on.append(tf.assign(var, val))
 
-    logits = tf.einsum('bnh,vh->bnv', top_h, w_soft) #Linear layer after the LSTM like h * w_softmax
-    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y,
+    print("emb_size :{}".format(emb.get_shape()))
+
+    print("before using LSTM")
+    out_c, out_h, all_h, var_h = _lstm(sample_arc, emb, prev_c,
+                                       prev_h, w_0, w_lstm, params= self.params)
+    prev_c , prev_h = out_c, out_h
+    print("prev_c , pre_h, out_h , out_c = {}, {}, {}, {}".format(prev_c, prev_h, out_h, out_c))
+    carry_on = [prev_h + prev_c]
+    print("after using LSTM")
+    top_h = all_h
+    print("top_h size = {}".format(top_h))
+
+    #logits = tf.einsum('bnh,vh->bnv', top_h, w_soft) #Linear layer after the LSTM like h * w_softmax
+    #out = [b ,h]
+    #w_soft = [h , v]
+    logits = tf.matmul(out_h , w_soft) + b
+    print("logits = {}".format(logits))
+    print("y = {}".format(y))
+    #y = tf.reshape(y, [batch_size])
+    print("y = {}".format(y))
+    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y[:,-1],
                                                           logits=logits)
     loss = tf.reduce_mean(loss)
-
     reg_loss = loss  # `loss + regularization_terms` is for training only
     if is_training:
       #L2 weight reg
@@ -323,17 +358,18 @@ class LM(object):
       reg_loss += self.params.weight_decay*tf.add_n([tf.reduce_sum(w ** 2) for w in tf.trainable_variables()])
 
       #activation L2 reg
-      reg_loss += self.params.alpha * tf.add_n([tf.reduce_sum(h ** 2) for h in all_h[:-1]])
+      #reg_loss += self.params.alpha * tf.add_n([tf.reduce_sum(h ** 2) for h in all_h])
 
       #activation slowness L2 reg
-      reg_loss += self.params.beta * tf.add_n([tf.reduce_mean((h[:, 1:, :] - h[:, :-1, :]) ** 2) for h in all_h[:-1]])
-
-
+      #reg_loss += self.params.beta * tf.add_n([tf.reduce_mean((h[:, 1:, :] - h[:, :-1, :]) ** 2) for h in all_h])
 
     with tf.control_dependencies(carry_on):
       self.loss = tf.identity(loss)
       if is_training:
         self.reg_loss = tf.identity(reg_loss)
+
+    #self.loss = tf.identity(loss)
+    #self.l2_reg_loss = tf.identity(loss)
     self.l2_reg_loss = loss
 
     return reg_loss, loss
@@ -342,10 +378,11 @@ class LM(object):
     """Build training ops."""
     print('-' * 80)
     print('Building train graph')
+    print("line 366")
     reg_loss, loss = self._forward(self.x_train, self.y_train,
                                    self.train_params, self.batch_init_states,
                                    is_training=True)
-
+    print("line 370")
     tf_vars = [v for v in tf.trainable_variables()
                if v.name.startswith(self.name)]
     global_step = tf.train.get_or_create_global_step()
@@ -356,8 +393,10 @@ class LM(object):
       grads = tf.gradients(reg_loss, tf_vars)
       clipped_grads, grad_norm = tf.clip_by_global_norm(grads,
                                                         self.params.grad_bound)
+    print("line 381")
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+
     train_op = optimizer.apply_gradients(zip(clipped_grads, tf_vars),
                                          global_step=global_step)
 

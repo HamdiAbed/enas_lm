@@ -23,6 +23,7 @@ import re
 import sys
 import tensorflow as tf
 
+
 gfile = tf.gfile
 
 

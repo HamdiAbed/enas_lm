@@ -31,7 +31,7 @@ flags.DEFINE_float('controller_entropy_weight', 1e-5, '')
 flags.DEFINE_float('controller_temperature', 5., '')
 flags.DEFINE_float('controller_tanh_constant', 2.25, '')
 flags.DEFINE_float('controller_learning_rate', 5e-5, '')
-flags.DEFINE_integer('controller_num_layers', 9, '')
+flags.DEFINE_integer('controller_num_layers', 6, '')
 
 
 REWARD_CONSTANT = 150.0
@@ -131,7 +131,7 @@ class Controller(object):
     prev_h = tf.zeros([1, hidden_size], dtype=tf.float32)
 
     inputs = self.g_emb #[1 , hidden_size]
-    for layer_id in range(1, num_layers + 1):
+    for layer_id in range(1, num_layers):
       for i in [0, 1]:
         print("layer_id , i are: {}, {}".format(layer_id, i))
         #Sampling the index first

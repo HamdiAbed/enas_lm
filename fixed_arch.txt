@@ -1,20 +1,22 @@
 fixed_arch = [0 1 2 3 4(c_prev) , 1 0 2 2 1 , 3 1 4 2 1, 5 2 6 2 0, 0 1 7 0 1, 7]
 Out = identity(8)
 
-ptyhon file where you define arch seq , then this python file creates only this graph, train it 
-construct it in incremental way, with id operation only! 5 layers, only one sampled layer with identity function
+Abstract , Introduction (problem description, novelty of this paper, 
+neural net approaches specially sequence techniques,we are interested in if this LSTM 
+is really the optimal approach or not, some words about NAS and ENAS, 
+This is one and half pages
 
+Previous work: (NAS and ENAS previous work. and why do we think it is not enough,
+ previous sequence modelling with NN (reminder : balint will send a paper))
 
-Abstract , Introduction (problem description, novelty of this paper, neural net approaches specially sequence techniques,we are interested in 
-if this LSTM is really the optimal approach or not, some words about NAS and ENAS, This is one and half pages
+Proposed work: (Theory itself, no measurements or implementations, system design, 
+equations, search space how did we expand it. no datasets description)
 
-Previous work: (NAS and ENAS previous work. and why do we think it is not enough, previous sequence modelling with NN (reminder : balint will send a paper),
-)
+Evaluation: (define the concrete things, num of layers,
+ operations, datasets, hyperparameters)
 
-Proposed work: (Theory itself, no measurements or implementations, system design, equations, seach space how did we expand it. no datasets description(
-
-Evaluation: (define the concrete things, num of layers, operations, datasets, hyperparameters)
-
-Results ( measurements, perplexity, loss, prove or disprove our initial assumption, computational complexity, training time ,etc(
+Results ( measurements, perplexity, loss, prove or disprove our initial assumption,
+ computational complexity, training time ,etc)
 
 conclusions or summary 
+

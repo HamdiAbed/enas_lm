@@ -30,6 +30,7 @@ import tensorflow as tf
 import child
 import controller
 import utils
+import pandas as pd
 
 flags = tf.app.flags
 gfile = tf.gfile
@@ -117,20 +118,14 @@ def train(params):
     accum_loss = 0
     accum_step = 0
     epoch = 0
-    best_valid_ppl = []
+
     start_time = time.time()
 
     while True:
       try:
-        #print('124 line')
         loss, l2_reg, gn, lr, should_reset, _ = sess.run(run_ops)
-        #print("line 126 check")
-        #print('loss type is {}'.format(type(loss)))
         accum_loss += loss
         accum_step += 1
-        #init = tf.global_variables_initializer()
-        #sess.run(init)
-        #print('131 line')
         step = sess.run(ops['global_step'])
 
         if step % params.log_every == 0:
@@ -152,8 +147,6 @@ def train(params):
           accum_step = 0
           valid_ppl = ops['eval_valid'](sess)
           sess.run([ops['reset_batch_states'], ops['reset_start_idx']])
-          best_valid_ppl.append(valid_ppl)
-
 
         if step >= params.num_train_steps:
           break

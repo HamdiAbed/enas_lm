@@ -62,7 +62,6 @@ def _lstm(x, prev_c, prev_h, w_lstm, layer_masks):
 
     def _condition(step, *unused_args):
         return tf.less(step, num_steps)
-
     tr_vars = []
 
     def _body(step, pprev_c, pprev_h, all_h):
@@ -77,9 +76,9 @@ def _lstm(x, prev_c, prev_h, w_lstm, layer_masks):
             tr_vars.append(w)
 
             # ifog = tf.matmul(tf.concat([inp, p_h], axis=1), w)
-            xi = tf.matmul(inp, tf.split(w, [tf.shape(inp)[-1], tf.shape(p_h)[-1]], axis=0)[0])
-            hi = tf.matmul(p_h, tf.split(w, [tf.shape(inp)[-1], tf.shape(p_h)[-1]], axis=0)[1])
-            # hi = tf.matmul(p_h, w_2)
+            xi = tf.matmul(inp, tf.split(w, [tf.shape(inp)[-1], tf.shape(p_h)[-1]], axis = 0)[0])
+            hi = tf.matmul(p_h, tf.split(w, [tf.shape(inp)[-1], tf.shape(p_h)[-1]], axis = 0)[1])
+            #hi = tf.matmul(p_h, w_2)
             x_plus_h = xi + hi
             print("x_plus_h size = {}".format(x_plus_h))
 
@@ -101,45 +100,43 @@ def _lstm(x, prev_c, prev_h, w_lstm, layer_masks):
                                              parallel_iterations=1)
     all_h = [tf.transpose(h.stack(), [1, 0, 2]) for h in all_h]
 
-    return next_c, next_h, all_h, tr_vars
+    return next_c, next_h, all_h,tr_vars
 
 
 def _set_default_params(params):
     """Set default parameters."""
-    params.add_hparam('alpha', 2.)  # activation L2 reg
+    params.add_hparam('alpha', 0.)  # activation L2 reg
     params.add_hparam('best_valid_ppl_threshold', 7)
-    params.add_hparam('beta', 1.)  # activation slowness reg
+    params.add_hparam('beta', 0.)  # activation slowness reg
 
-    params.add_hparam('batch_size', 32)
-    params.add_hparam('bptt_steps', 70)
+    params.add_hparam('batch_size', 128)
+    params.add_hparam('bptt_steps', 35)
 
     # for dropouts: dropping rate, NOT keeping rate
-    params.add_hparam('drop_e', 0.10)  # word
-    params.add_hparam('drop_i', 0.65)  # embeddings
-    params.add_hparam('drop_l', 0.30)  # between layers
-    params.add_hparam('drop_o', 0.40)  # output
-    params.add_hparam('drop_w', 0.50)  # weight
+    params.add_hparam('drop_e', 0.0)  # word
+    params.add_hparam('drop_i', 0.0)  # embeddings
+    params.add_hparam('drop_l', 0.0)  # between layers
+    params.add_hparam('drop_o', 0.0)  # output
+    params.add_hparam('drop_w', 0.0)  # weight
 
-    params.add_hparam('emb_size', 400)
+    params.add_hparam('emb_size', 512)
     params.add_hparam('start_decay_epoch', 14)
     params.add_hparam('decay_every_epoch', 1)
     params.add_hparam('decay_rate', 0.98)
     params.add_hparam('grad_bound', 0.25)
-    params.add_hparam('hidden_size', 1024)
+    params.add_hparam('hidden_size', 256)
     params.add_hparam('init_range', 0.1)
-    params.add_hparam('learning_rate', 20.)
+    params.add_hparam('learning_rate', 10.01)
     params.add_hparam('num_layers', 3)
     params.add_hparam('num_train_epochs', 500)
-    # params.add_hparam('num_train_batches', 829)
+    #params.add_hparam('num_train_batches', 829)
     params.add_hparam('vocab_size', 10000)
 
     params.add_hparam('weight_decay', 1.2e-6)
     return params
 
-
 def FC(x, w):
     return tf.nn.relu(tf.matmul(x, w))
-
 
 class LM(object):
     """Language model."""
@@ -226,17 +223,17 @@ class LM(object):
                    init_range = 1.0 / np.sqrt(hid_size)
                    initializer = tf.initializers.random_uniform(-init_range, init_range)
                    with tf.variable_scope('layer_{0}'.format(i)):
-
+                       
                        w = tf.get_variable('w', [inp_size + hid_size, 4 * hid_size],
                                            initializer=initializer)
                        i_mask = tf.ones([inp_size, 4 * hid_size], dtype=tf.float32)
                        h_mask = _gen_mask([hid_size, 4 * hid_size], self.params.drop_w)
                        mask = tf.concat([i_mask, h_mask], axis=0)
                        dropped_w = w * mask
-
+                      
                        w_lstm.append(w)
                        dropped_w_lstm.append(dropped_w)
-
+                       
                         w_h = tf.get_variable('w_h', [hid_size, 4 * hid_size], initializer=initializer, trainable=True)
                         w_x = tf.get_variable('w_x', [inp_size, 4 * hid_size], initializer=initializer, trainable=True)
                         i_mask = tf.ones([inp_size, 4 * hid_size], dtype=tf.float32)
@@ -337,7 +334,9 @@ class LM(object):
         else:
             layer_masks = [None] * self.params.num_layers
 
-        out_c, out_h, all_h, tr_vars = _lstm(emb, prev_c, prev_h, w_lstm, layer_masks)
+
+
+        out_c, out_h, all_h, tr_vars = _lstm(emb, prev_c, prev_h, w_lstm , layer_masks)
 
         top_h = all_h[-1]
 
@@ -360,8 +359,8 @@ class LM(object):
         if is_training:
             # L2 weight reg
             reg_loss += self.params.weight_decay * tf.add_n(
-                [tf.reduce_sum(w ** 2) for w in tf.trainable_variables()])
-
+                [tf.reduce_sum(w ** 2) for w in tr_vars])
+            """
             # activation L2 reg
             reg_loss += self.params.alpha * tf.add_n(
                 [tf.reduce_mean(h ** 2) for h in all_h[:-1]])
@@ -370,6 +369,7 @@ class LM(object):
             reg_loss += self.params.beta * tf.add_n(
                 [tf.reduce_mean((h[:, 1:, :] - h[:, :-1, :]) ** 2)
                  for h in all_h[:-1]])
+                """
 
         with tf.control_dependencies(carry_on):
             loss = tf.identity(loss)
@@ -378,13 +378,14 @@ class LM(object):
 
         return reg_loss, loss, logits
 
+
     def _build_train(self):
         """Build training ops."""
         print('-' * 80)
         print('Building train graph')
         reg_loss, loss, self.logits = self._forward(self.x_train, self.y_train,
-                                                    self.train_params, self.batch_init_states,
-                                                    is_training=True)
+                                       self.train_params, self.batch_init_states,
+                                       is_training=True)
 
         tf_vars = tf.trainable_variables()
         global_step = tf.train.get_or_create_global_step()
@@ -470,13 +471,13 @@ class LM(object):
     def _build_valid(self):
         print('Building valid graph')
         _, loss, _ = self._forward(self.x_valid, self.y_valid,
-                                   self.eval_params, self.batch_init_states)
+                                self.eval_params, self.batch_init_states)
         self.valid_loss = loss
 
     def _build_test(self):
         print('Building test graph')
-        _, loss, _ = self._forward(self.x_test, self.y_test,
-                                   self.eval_params, self.test_init_states)
+        _, loss,_ = self._forward(self.x_test, self.y_test,
+                                self.eval_params, self.test_init_states)
         self.test_loss = loss
 
     def eval_valid(self, sess, use_moving_avg=False):

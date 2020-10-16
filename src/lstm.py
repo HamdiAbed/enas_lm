@@ -27,8 +27,10 @@ import time
 import numpy as np
 import tensorflow as tf
 
-import lstm_lib
+import lstm_modified
 import utils
+import matplotlib.pyplot as plt
+import pandas as pd
 
 
 flags = tf.app.flags
@@ -39,14 +41,16 @@ flags.DEFINE_boolean('reset_output_dir', False, '')
 flags.DEFINE_string('output_dir', None, '')
 flags.DEFINE_string('data_path', None, '')
 
-flags.DEFINE_integer('log_every', 200, '')
 
+
+log_every_x= 0
 
 def get_ops(params, x_train, x_valid, x_test):
   """Build [train, valid, test] graphs."""
 
-  lm = lstm_lib.LM(params, x_train, x_valid, x_test)
-  params.add_hparam('_batches', lm.num_train_batches)
+  lm = lstm_modified.LM(params, x_train, x_valid, x_test)
+  #params.add_hparam('num_train_batches', lm.num_train_batches)
+  log_every_x = lm.num_train_batches
   ops = {
       'train_op': lm.train_op,
       'learning_rate': lm.learning_rate,
@@ -62,11 +66,24 @@ def get_ops(params, x_train, x_valid, x_test):
       'moving_avg_started': lm.moving_avg_started,
       'update_moving_avg': lm.update_moving_avg_ops,
       'start_moving_avg': lm.start_moving_avg_op,
+      'one_batch': lm.one_batch,
+      'logits': lm.logits
   }
   print('-' * 80)
   print('HParams:\n{0}'.format(params.to_json(indent=2, sort_keys=True)))
+  hyp_params = {
+      'batch_size': [params.batch_size],
+      'hidden_size': [params.hidden_size],
+      'num_of_batches': [params.num_train_batches],
+      'emb_size': [params.emb_size],
+      'learning_rate': [params.learning_rate]
+  }
+  hyp_params = pd.DataFrame(hyp_params)
+  hyp_params.to_csv('Hyper_params')
+
 
   return ops
+flags.DEFINE_integer('log_every',207, '')
 
 
 def train(params):
@@ -75,10 +92,13 @@ def train(params):
   #with gfile.GFile(params.data_path, 'rb') as finp:
   with gfile.GFile(data_path, 'rb') as finp:
     x_train, x_valid, x_test, _, _ = pickle.load(finp)
+   # x_train, x_valid, x_test  = x_train[:1024], x_valid[:1024], x_test[:1024]
+
     print('-' * 80)
     print('train_size: {0}'.format(np.size(x_train)))
     print('valid_size: {0}'.format(np.size(x_valid)))
     print(' test_size: {0}'.format(np.size(x_test)))
+
 
   g = tf.Graph()
   with g.as_default():
@@ -90,10 +110,12 @@ def train(params):
         ops['should_reset'],
         ops['moving_avg_started'],
         ops['train_op'],
+        ops['one_batch'],
+        ops['logits'],
     ]
 
     saver = tf.train.Saver(max_to_keep=1)
-    output_dir = r'F:\workspace\enas_lm\src\output'
+    output_dir = r'output'
     checkpoint_saver_hook = tf.train.CheckpointSaverHook(
         output_dir, save_steps=params.num_train_batches, saver=saver)
     hooks = [checkpoint_saver_hook]
@@ -104,11 +126,18 @@ def train(params):
     accum_loss = 0
     accum_step = 0
     epoch = 0
-    best_valid_ppl = []
+    train_perp = 10000
+    valid_perp = 10000
+    best_valid_ppl = pd.DataFrame({
+        'Epoch': [0],
+        'train_perp':[10000],
+        'best_valid_perp': [10000],
+    })
+    best_valid_ppl.to_csv('best_valid_perp', index=False)
     start_time = time.time()
     while True:
       sess.run(ops['reset_batch_states'])
-      loss, gn, lr, should_reset, moving_avg_started, _ = sess.run(run_ops)
+      loss, gn, lr, should_reset, moving_avg_started, _, one_batch, logits = sess.run(run_ops)
       accum_loss += loss
       accum_step += 1
       step = sess.run(ops['global_step'])
@@ -122,7 +151,9 @@ def train(params):
         log_string += ' |g|={0:<5.2f}'.format(gn)
         log_string += ' avg={0:<2d}'.format(moving_avg_started)
         log_string += ' mins={0:<.2f}'.format(mins_so_far)
+        train_perp = train_ppl
         print(log_string)
+        #print('\n logits', logits[0])
 
       if moving_avg_started:
         sess.run(ops['update_moving_avg'])
@@ -133,23 +164,29 @@ def train(params):
         accum_loss = 0
         accum_step = 0
         valid_ppl = ops['eval_valid'](sess, use_moving_avg=moving_avg_started)
+        valid_perp = valid_ppl
         sess.run([ops['reset_batch_states'], ops['reset_start_idx']])
         if (not moving_avg_started and
             len(best_valid_ppl) > params.best_valid_ppl_threshold and
             valid_ppl > min(best_valid_ppl[:-params.best_valid_ppl_threshold])):
           print('Starting moving_avg')
           sess.run(ops['start_moving_avg'])
-        best_valid_ppl.append(valid_ppl)
+        #best_valid_ppl.append(valid_ppl)
+      best_valid_ppl.append({'Epoch': [epoch - 1],
+                             'train_perp': [train_perp],
+                             'best_valid_perp': [valid_perp]},
+                            ignore_index=True)
+
+      best_valid_ppl.to_csv('best_valid_perp', mode='a', header=False)
 
       if step >= params.num_train_steps:
         ops['eval_test'](sess, use_moving_avg=moving_avg_started)
         break
     sess.close()
 
-
 def main(unused_args):
   #output_dir = FLAGS.output_dir
-  output_dir = r'F:\workspace\enas_lm\src\output'
+  output_dir = r'output'
   print('-' * 80)
   if not gfile.IsDirectory(output_dir):
     print('Path {} does not exist. Creating'.format(output_dir))
