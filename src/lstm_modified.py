@@ -39,7 +39,7 @@ def _gen_mask(shape, drop_prob):
     return mask
 
 
-def _lstm(x, prev_c, prev_h, w_lstm, layer_masks):
+def _lstm(x, prev_c, prev_h, w_lstm, layer_masks,params):
     """Multi-layer LSTM.
 
     Args:
@@ -56,6 +56,7 @@ def _lstm(x, prev_c, prev_h, w_lstm, layer_masks):
     _, num_steps, _ = tf.unstack(tf.shape(x))
     print("x_shape = {}".format(x))
     num_layers = len(w_lstm)
+    batch_size = x.get_shape()[0].value
 
     all_h = [tf.TensorArray(dtype=tf.float32, size=num_steps, infer_shape=False)
              for _ in range(num_layers)]
@@ -76,8 +77,8 @@ def _lstm(x, prev_c, prev_h, w_lstm, layer_masks):
             tr_vars.append(w)
 
             # ifog = tf.matmul(tf.concat([inp, p_h], axis=1), w)
-            xi = tf.matmul(inp, tf.split(w, [tf.shape(inp)[-1], tf.shape(p_h)[-1]], axis = 0)[0])
-            hi = tf.matmul(p_h, tf.split(w, [tf.shape(inp)[-1], tf.shape(p_h)[-1]], axis = 0)[1])
+            xi = tf.matmul(inp, tf.split(w, [params.emb_size, params.hidden_size], axis = 0)[0])
+            hi = tf.matmul(p_h, tf.split(w, [params.emb_size, params.hidden_size], axis = 0)[1])
             #hi = tf.matmul(p_h, w_2)
             x_plus_h = xi + hi
             print("x_plus_h size = {}".format(x_plus_h))
@@ -89,10 +90,12 @@ def _lstm(x, prev_c, prev_h, w_lstm, layer_masks):
             g = tf.tanh(g)
             c = i * g + f * p_c
             h = o * tf.tanh(c)
+            #h.set_shape([params.batch_size, params.hidden_size])
 
             all_h[layer_id] = all_h[layer_id].write(step, h)
             next_c.append(c)
             next_h.append(h)
+
         return step + 1, next_c, next_h, all_h
 
     loop_inps = [tf.constant(0, dtype=tf.int32), prev_c, prev_h, all_h]
@@ -127,12 +130,12 @@ def _set_default_params(params):
     params.add_hparam('hidden_size', 256)
     params.add_hparam('init_range', 0.1)
     params.add_hparam('learning_rate', 10.01)
-    params.add_hparam('num_layers', 3)
+    params.add_hparam('num_layers', 1)
     params.add_hparam('num_train_epochs', 500)
     #params.add_hparam('num_train_batches', 829)
     params.add_hparam('vocab_size', 10000)
 
-    params.add_hparam('weight_decay', 1.2e-6)
+    params.add_hparam('weight_decay', 8e-7)
     return params
 
 def FC(x, w):
@@ -176,7 +179,7 @@ class LM(object):
         self._build_params()
         self._build_train()
         self._build_valid()
-        self._build_test()
+        #self._build_test()
 
     def _build_params(self):
         """Create and count model parameters."""
@@ -192,6 +195,8 @@ class LM(object):
                 dropped_w_emb = tf.layers.dropout(
                     w_emb, self.params.drop_e, [self.params.vocab_size, 1],
                     training=True)
+                b = tf.get_variable('b', shape=[self.params.batch_size, self.params.vocab_size])
+                w_soft = tf.get_variable('w_soft', [self.params.hidden_size, self.params.vocab_size])
 
             w_lstm = []
             dropped_w_lstm = []
@@ -201,8 +206,7 @@ class LM(object):
             with tf.variable_scope('lstm'):
                 for i in range(self.params.num_layers):
                     inp_size = self.params.emb_size if i == 0 else self.params.hidden_size
-                    hid_size = (self.params.emb_size if i == self.params.num_layers - 1
-                                else self.params.hidden_size)
+                    hid_size = self.params.hidden_size
                     init_range = 1.0 / np.sqrt(hid_size)
                     initializer = tf.initializers.random_uniform(-init_range, init_range)
                     with tf.variable_scope('layer_{0}'.format(i)):
@@ -249,8 +253,7 @@ class LM(object):
                 test_prev_c, test_prev_h, test_reset = [], [], []
                 for i in range(self.params.num_layers):
                     inp_size = self.params.emb_size if i == 0 else self.params.hidden_size
-                    hid_size = (self.params.emb_size if i == self.params.num_layers - 1
-                                else self.params.hidden_size)
+                    hid_size = self.params.hidden_size
 
                     with tf.variable_scope('layer_{0}'.format(i)):
                         with tf.variable_scope('batch'):
@@ -278,12 +281,14 @@ class LM(object):
         self.batch_init_states = {
             'c': batch_prev_c,
             'h': batch_prev_h,
+
             'reset': batch_reset,
         }
         self.train_params = {
             'w_emb': dropped_w_emb,
             'w_lstm': dropped_w_lstm,
-            'w_soft': w_emb,
+            'b':b,
+            'w_soft': w_soft,
         }
         self.test_init_states = {
             'c': test_prev_c,
@@ -292,8 +297,9 @@ class LM(object):
         }
         self.eval_params = {
             'w_emb': w_emb,
+            'b':b,
             'w_lstm': w_lstm,
-            'w_soft': w_emb,
+            'w_soft': w_soft,
         }
 
     def _forward(self, x, y, model_params, init_states, is_training=False):
@@ -317,6 +323,7 @@ class LM(object):
         w_soft = model_params['w_soft']
         prev_c = init_states['c']
         prev_h = init_states['h']
+        b = model_params['b']
 
         emb = tf.nn.embedding_lookup(w_emb, x)
 
@@ -336,9 +343,13 @@ class LM(object):
 
 
 
-        out_c, out_h, all_h, tr_vars = _lstm(emb, prev_c, prev_h, w_lstm , layer_masks)
+        out_c, out_h, all_h, tr_vars = _lstm(emb, prev_c, prev_h, w_lstm , layer_masks, self.params)
 
         top_h = all_h[-1]
+        print('top_h = {}'.format(top_h))
+        print('out_h = {}'.format(out_h))
+        print('w_soft = {}'.format(w_soft))
+        print('b = {}'.format(b))
 
         if is_training:
             top_h = tf.layers.dropout(
@@ -348,10 +359,13 @@ class LM(object):
         carry_on = []
         for var, val in zip(prev_c + prev_h, out_c + out_h):
             carry_on.append(tf.assign(var, val))
+        print("out_h = {}".format(out_h))
+        #logits = tf.einsum('bnh,vh->bnv', top_h, w_soft)
+        logits = tf.add(tf.matmul(out_h[-1], w_soft) , b)
+        print("logits = {}".format(logits))
+        print("y = {}".format(y[:, -1]))
 
-        logits = tf.einsum('bnh,vh->bnv', top_h, w_soft)
-
-        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y,
+        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y[:, -1],
                                                               logits=logits)
         loss = tf.reduce_mean(loss)  # TODO(hyhieu): watch for num_steps
 

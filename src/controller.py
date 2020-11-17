@@ -182,26 +182,6 @@ class Controller(object):
           arc_seq.append([0])
         else:
           arc_seq.append([1])
-
-        #Sampling an activation function
-        #next_c, next_h = _lstm(inputs, prev_c, prev_h, self.w_lstm)
-        #prev_c, prev_h = next_c, next_h
-        #logits = tf.matmul(next_h, self.w_emb, transpose_b=True)
-        #if self.params.controller_temperature:
-        #  logits /= self.params.controller_temperature
-        #if self.params.controller_tanh_constant:
-        #  logits = self.params.controller_tanh_constant * tf.tanh(logits)
-        #func = tf.multinomial(logits, 1)
-        #func = tf.to_int32(fuc)
-        #func = tf.reshape(func, [1])
-        #arc_seq.append(func)
-        #log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        #  logits=logits, labels=func)
-        #sample_log_probs.append(log_prob)
-        #entropy = log_prob * tf.exp(-log_prob)
-        #sample_entropy.append(tf.stop_gradient(entropy))
-
-
         i += 1
 
       # sampling an operation for the selected connections and functions
@@ -221,8 +201,6 @@ class Controller(object):
       sample_log_probs.append(log_prob)
       entropy = log_prob * tf.exp(-log_prob)
       sample_entropy.append(tf.stop_gradient(entropy))
-
-      #TODO : add one last sampler to sample Ct
 
     arc_seq = tf.concat(arc_seq, axis=0)
     print("arc_seq shape is: {}".format(arc_seq.get_shape()))

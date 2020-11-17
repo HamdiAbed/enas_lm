@@ -40,7 +40,7 @@ flags.DEFINE_boolean('reset_output_dir', False, '')
 flags.DEFINE_string('output_dir', None, '')
 flags.DEFINE_string('data_path', None, '')
 
-flags.DEFINE_integer('log_every', 200, '')
+flags.DEFINE_integer('log_every', 207, '')
 
 
 def get_ops(params, x_train, x_valid):
@@ -64,7 +64,7 @@ def get_ops(params, x_train, x_valid):
       'should_reset': lm.should_reset,
 
       'controller_train_op': ct.train_op,
-      'controller_grad_norm': ct.train_op,
+      'controller_grad_norm': ct.grad_norm,
       'controller_sample_arc': ct.sample_arc,
       'controller_entropy': ct.sample_entropy,
       'controller_reward': ct.reward,
@@ -93,7 +93,6 @@ def train(params):
 
   with g.as_default():
     ops = get_ops(params, x_train, x_valid)
-
     run_ops = [
         ops['train_loss'],
         ops['l2_reg_loss'],
@@ -102,7 +101,6 @@ def train(params):
         ops['should_reset'],
         ops['train_op'],
     ]
-    print("104 line")
     #saver = tf.train.Saver(max_to_keep=1)
     saver = tf.train.Saver(max_to_keep=1)
     checkpoint_saver_hook = tf.train.CheckpointSaverHook(
@@ -110,11 +108,10 @@ def train(params):
     hooks = [checkpoint_saver_hook]
     hooks.append(ops['controller_optimizer'].make_session_run_hook(True))
     config = tf.ConfigProto()
-    print("111 line")
+
     config.gpu_options.allow_growth = True
     sess = tf.train.SingularMonitoredSession(config=config, hooks=hooks,
                                              checkpoint_dir=params.output_dir)
-    print("114 line")
     accum_loss = 0
     accum_step = 0
     epoch = 0

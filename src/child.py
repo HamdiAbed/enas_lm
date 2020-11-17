@@ -30,8 +30,8 @@ flags = tf.app.flags
 FLAGS = flags.FLAGS
 
 
-flags.DEFINE_integer('child_batch_size', 128, '')
-flags.DEFINE_integer('child_bptt_steps', 35, '')
+flags.DEFINE_integer('child_batch_size', 16, '')
+flags.DEFINE_integer('child_bptt_steps', 70, '')
 
 global emb
 def _lstm(sample_arc, x,prev_c, prev_h,w_0, w_lstm,
@@ -179,15 +179,15 @@ def _set_default_params(params):
   params.add_hparam('drop_w', 0.00)  # weight
 
   params.add_hparam('grad_bound', 0.25)
-  params.add_hparam('hidden_size',256)
+  params.add_hparam('hidden_size', 64)
   params.add_hparam('init_range', 0.04)
-  params.add_hparam('learning_rate', 0.01)
+  params.add_hparam('learning_rate', 10.01)
   params.add_hparam('num_train_epochs', 500)
   params.add_hparam('vocab_size', 10000)
-  params.add_hparam('emb_size', 512)
+  params.add_hparam('emb_size', 64)
 
   params.add_hparam('weight_decay', 8e-7)
-  params.add_hparam('num_layers', 6)
+  params.add_hparam('num_layers', 4)
 
   return params
 
@@ -288,7 +288,7 @@ class LM(object):
     self.train_params = {
         'w_emb': w_emb,
         'w_0':w_0,
-        'b':b,
+        'b': b,
         'w_lstm':  w_lstm,
         'w_soft': w_soft}
 

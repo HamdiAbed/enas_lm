@@ -177,7 +177,7 @@ def train(params):
                              'best_valid_perp': [valid_perp]},
                             ignore_index=True)
 
-      best_valid_ppl.to_csv('best_valid_perp', mode='a', header=False)
+      #best_valid_ppl.to_csv('best_valid_perp', mode='a', header=False)
 
       if step >= params.num_train_steps:
         ops['eval_test'](sess, use_moving_avg=moving_avg_started)
